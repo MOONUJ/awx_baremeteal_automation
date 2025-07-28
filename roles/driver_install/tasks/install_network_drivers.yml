@@ -1,0 +1,104 @@
+---
+- name: 네트워크 드라이버 설치 시작
+  debug:
+    msg: "네트워크 드라이버를 설치합니다"
+
+- name: 네트워크 어댑터 정보 확인
+  shell: lspci | grep -i ethernet
+  register: network_adapters
+  changed_when: false
+
+- name: 현재 네트워크 드라이버 확인
+  shell: for iface in $(ls /sys/class/net/ | grep -v lo); do echo "$iface: $(ethtool -i $iface 2>/dev/null | grep driver | cut -d' ' -f2)"; done
+  register: current_network_drivers
+  changed_when: false
+
+- name: 네트워크 드라이버 정보 출력
+  debug:
+    msg: |
+      네트워크 어댑터: {{ network_adapters.stdout_lines }}
+      현재 드라이버: {{ current_network_drivers.stdout_lines }}
+
+# Intel 네트워크 드라이버 설치
+- name: Intel i40e 드라이버 설치
+  block:
+    - name: Intel i40e 드라이버 다운로드
+      get_url:
+        url: "{{ driver_repo_url }}/network/intel/i40e-{{ network_drivers[0].version }}.tar.gz"
+        dest: "{{ driver_local_path }}/i40e.tar.gz"
+
+    - name: i40e 드라이버 압축 해제
+      unarchive:
+        src: "{{ driver_local_path }}/i40e.tar.gz"
+        dest: "{{ driver_local_path }}"
+        remote_src: yes
+
+    - name: i40e 드라이버 컴파일
+      make:
+        chdir: "{{ driver_local_path }}/i40e-{{ network_drivers[0].version }}/src"
+
+    - name: i40e 드라이버 설치
+      make:
+        chdir: "{{ driver_local_path }}/i40e-{{ network_drivers[0].version }}/src"
+        target: install
+
+  when: "'Intel' in network_adapters.stdout"
+
+# Broadcom 네트워크 드라이버 설치
+- name: Broadcom bnx2x 드라이버 설치
+  block:
+    - name: Broadcom 드라이버 패키지 설치
+      package:
+        name: "{{ network_drivers[1].package }}"
+        state: present
+
+  when: "'Broadcom' in network_adapters.stdout"
+
+# Mellanox 네트워크 드라이버 설치
+- name: Mellanox OFED 드라이버 설치
+  block:
+    - name: Mellanox OFED 다운로드
+      get_url:
+        url: "{{ driver_repo_url }}/network/mellanox/MLNX_OFED_LINUX-{{ network_drivers[2].version }}.tgz"
+        dest: "{{ driver_local_path }}/mlnx_ofed.tgz"
+
+    - name: Mellanox OFED 압축 해제
+      unarchive:
+        src: "{{ driver_local_path }}/mlnx_ofed.tgz"
+        dest: "{{ driver_local_path }}"
+        remote_src: yes
+
+    - name: Mellanox OFED 설치
+      command: "{{ driver_local_path }}/MLNX_OFED_LINUX-{{ network_drivers[2].version }}/mlnxofedinstall --force"
+      register: mlnx_install
+
+    - name: Mellanox 서비스 시작
+      systemd:
+        name: openibd
+        state: started
+        enabled: yes
+
+  when: "'Mellanox' in network_adapters.stdout"
+
+- name: 네트워크 드라이버 모듈 로드
+  modprobe:
+    name: "{{ item.package }}"
+    state: present
+  loop: "{{ network_drivers }}"
+  ignore_errors: yes
+
+- name: 네트워크 인터페이스 재시작
+  systemd:
+    name: networking
+    state: restarted
+  when: ansible_os_family == "Debian"
+
+- name: 네트워크 서비스 재시작 (RHEL/CentOS)
+  systemd:
+    name: NetworkManager
+    state: restarted
+  when: ansible_os_family == "RedHat"
+
+- name: 네트워크 드라이버 설치 완료
+  debug:
+    msg: "네트워크 드라이버 설치가 완료되었습니다"

@@ -1,0 +1,45 @@
+---
+# 드라이버 설치 핸들러
+
+- name: 시스템 재부팅
+  reboot:
+    reboot_timeout: 600
+    test_command: whoami
+
+- name: 커널 모듈 재로드
+  shell: |
+    depmod -a
+    modprobe -r {{ item }}
+    modprobe {{ item }}
+  loop:
+    - i40e
+    - bnx2x
+    - megaraid_sas
+    - mpt3sas
+    - nvidia
+  ignore_errors: yes
+
+- name: 네트워크 서비스 재시작
+  systemd:
+    name: "{{ 'networking' if ansible_os_family == 'Debian' else 'NetworkManager' }}"
+    state: restarted
+
+- name: X11 서비스 재시작
+  systemd:
+    name: gdm
+    state: restarted
+  when: gui_environment | default(false)
+  ignore_errors: yes
+
+- name: 드라이버 설치 완료 알림
+  uri:
+    url: "{{ notification_webhook }}"
+    method: POST
+    body_format: json
+    body:
+      text: "{{ inventory_hostname }}에서 드라이버 설치가 완료되었습니다."
+  when: notification_enabled and notification_webhook is defined
+  delegate_to: localhost
+
+- name: initramfs 업데이트
+  command: "{{ 'update-initramfs -u' if ansible_os_family == 'Debian' else 'dracut --force' }}"

@@ -1,0 +1,98 @@
+---
+- name: 드라이버 설치 시작
+  debug:
+    msg: "베어메탈 서버 드라이버 설치를 시작합니다"
+
+- name: 하드웨어 정보 수집
+  setup:
+    gather_subset:
+      - hardware
+
+- name: PCI 디바이스 정보 수집
+  command: lspci -nn
+  register: pci_devices
+  changed_when: false
+
+- name: 현재 로드된 커널 모듈 확인
+  command: lsmod
+  register: loaded_modules
+  changed_when: false
+
+- name: 드라이버 다운로드 디렉토리 생성
+  file:
+    path: "{{ driver_local_path }}"
+    state: directory
+    mode: '0755'
+
+- name: 개발 도구 설치 (컴파일 필요시)
+  package:
+    name:
+      - build-essential
+      - linux-headers-{{ ansible_kernel }}
+      - dkms
+      - git
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: 개발 도구 설치 (RHEL/CentOS)
+  package:
+    name:
+      - gcc
+      - make
+      - kernel-devel
+      - kernel-headers
+      - dkms
+      - git
+    state: present
+  when: ansible_os_family == "RedHat"
+
+# 네트워크 드라이버 설치
+- name: 네트워크 드라이버 설치
+  include_tasks: install_network_drivers.yml
+  when: install_network_drivers
+
+# 스토리지 드라이버 설치
+- name: 스토리지 드라이버 설치
+  include_tasks: install_storage_drivers.yml
+  when: install_storage_drivers
+
+# GPU 드라이버 설치
+- name: GPU 드라이버 설치
+  include_tasks: install_gpu_drivers.yml
+  when: install_gpu_drivers
+
+# 벤더별 특정 드라이버 설치
+- name: 벤더별 드라이버 설치
+  include_tasks: install_vendor_drivers.yml
+  when: install_vendor_specific
+
+- name: 커널 모듈 업데이트
+  block:
+    - name: initramfs 업데이트
+      command: update-initramfs -u
+      when: ansible_os_family == "Debian" and update_initramfs
+
+    - name: dracut 업데이트 (RHEL/CentOS)
+      command: dracut --force
+      when: ansible_os_family == "RedHat" and update_initramfs
+
+    - name: 모듈 의존성 업데이트
+      command: depmod -a
+      when: rebuild_kernel_modules
+
+- name: 드라이버 로드 검증
+  include_tasks: verify_drivers.yml
+  when: verify_driver_load
+
+- name: 시스템 재부팅 (필요시)
+  reboot:
+    reboot_timeout: 600
+  when: reboot_after_driver_install
+
+- name: 재부팅 후 드라이버 확인
+  include_tasks: verify_drivers.yml
+  when: reboot_after_driver_install and verify_driver_load
+
+- name: 드라이버 설치 완료
+  debug:
+    msg: "모든 드라이버 설치가 완료되었습니다"

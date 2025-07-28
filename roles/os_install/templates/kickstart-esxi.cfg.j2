@@ -1,0 +1,131 @@
+# ESXi 자동 설치를 위한 Kickstart 설정
+# {{ ansible_managed }}
+
+# Accept the VMware End User License Agreement
+vmaccepteula
+
+# Set the root password
+rootpw {{ esxi_root_password }}
+
+# Install on the first local disk overwriting any existing VMFS datastore
+{% if esxi_target_disk is defined %}
+install --firstdisk={{ esxi_target_disk }} --overwritevmfs
+{% else %}
+install --firstdisk --overwritevmfs
+{% endif %}
+
+# Set the network to DHCP on the first network adapter
+{% if esxi_use_dhcp %}
+network --bootproto=dhcp --device={{ esxi_network_device | default('vmnic0') }} --hostname={{ esxi_hostname | default(inventory_hostname) }}
+{% else %}
+network --bootproto=static --device={{ esxi_network_device | default('vmnic0') }} --ip={{ esxi_static_ip }} --netmask={{ esxi_netmask }} --gateway={{ esxi_gateway }} --nameserver={{ esxi_dns_servers | join(',') }} --hostname={{ esxi_hostname | default(inventory_hostname) }}
+{% endif %}
+
+# Reboot after installation
+reboot
+
+%firstboot --interpreter=busybox
+
+# Enable SSH and ESXi Shell
+vim-cmd hostsvc/enable_ssh
+vim-cmd hostsvc/start_ssh
+
+vim-cmd hostsvc/enable_esx_shell
+vim-cmd hostsvc/start_esx_shell
+
+# Configure NTP
+esxcli system ntp set --server={{ esxi_ntp_servers | join(' --server=') }}
+esxcli system ntp set --enabled=true
+
+# Set timezone
+esxcli system time set --timezone={{ esxi_timezone | default('Asia/Seoul') }}
+
+# Configure syslog
+{% if esxi_syslog_server is defined %}
+esxcli system syslog config set --loghost={{ esxi_syslog_server }}:{{ esxi_syslog_port | default(514) }}
+esxcli system syslog reload
+{% endif %}
+
+# Configure SNMP if enabled
+{% if esxi_enable_snmp %}
+esxcli system snmp set --communities={{ esxi_snmp_community | default('public') }}
+esxcli system snmp set --enable=true
+{% endif %}
+
+# Configure vSwitch and port groups
+{% if esxi_vswitch_config is defined %}
+{% for vswitch in esxi_vswitch_config %}
+esxcli network vswitch standard add --vswitch-name={{ vswitch.name }}
+{% if vswitch.uplinks is defined %}
+{% for uplink in vswitch.uplinks %}
+esxcli network vswitch standard uplink add --uplink-name={{ uplink }} --vswitch-name={{ vswitch.name }}
+{% endfor %}
+{% endif %}
+{% if vswitch.portgroups is defined %}
+{% for pg in vswitch.portgroups %}
+esxcli network vswitch standard portgroup add --portgroup-name="{{ pg.name }}" --vswitch-name={{ vswitch.name }}
+{% if pg.vlan is defined %}
+esxcli network vswitch standard portgroup set --portgroup-name="{{ pg.name }}" --vlan-id={{ pg.vlan }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+# Configure datastore name
+{% if esxi_datastore_name is defined %}
+vim-cmd hostsvc/datastore/rename datastore1 "{{ esxi_datastore_name }}"
+{% endif %}
+
+# Set host advanced options
+{% if esxi_advanced_options is defined %}
+{% for option in esxi_advanced_options %}
+esxcli system settings advanced set --option={{ option.key }} --{{ option.type | default('int') }}-value={{ option.value }}
+{% endfor %}
+{% endif %}
+
+# Create local users if specified
+{% if esxi_local_users is defined %}
+{% for user in esxi_local_users %}
+esxcli system account add --id={{ user.username }} --password={{ user.password }} --password-confirmation={{ user.password }}
+{% if user.description is defined %}
+esxcli system account set --id={{ user.username }} --description="{{ user.description }}"
+{% endif %}
+{% if user.roles is defined %}
+{% for role in user.roles %}
+esxcli system permission set --id={{ user.username }} --role={{ role }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+# Configure firewall rules
+{% if esxi_firewall_rules is defined %}
+{% for rule in esxi_firewall_rules %}
+esxcli network firewall ruleset set --ruleset-id={{ rule.ruleset }} --enabled={{ rule.enabled | lower }}
+{% endfor %}
+{% else %}
+# Enable SSH by default
+esxcli network firewall ruleset set --ruleset-id=sshServer --enabled=true
+{% endif %}
+
+# Set maintenance mode
+esxcli system maintenanceMode set --enable=false
+
+# Configure scratch location for logging
+{% if esxi_scratch_location is defined %}
+esxcli system visorfs ramdisk add --name=scratch --size={{ esxi_scratch_size | default(512) }} --mount-point=/scratch
+esxcli system syslog config set --logdir=/scratch/log
+{% endif %}
+
+# Custom post-install commands
+{% if esxi_custom_commands is defined %}
+{% for command in esxi_custom_commands %}
+{{ command }}
+{% endfor %}
+{% endif %}
+
+# Log completion
+echo "ESXi kickstart 설치 완료: $(date)" >> /var/log/kickstart.log
+
+%end

@@ -1,0 +1,27 @@
+---
+# OS 설치 핸들러
+
+- name: 시스템 재부팅
+  reboot:
+    reboot_timeout: "{{ reboot_timeout }}"
+    test_command: whoami
+
+- name: 네트워크 재시작
+  systemd:
+    name: "{{ 'networking' if ansible_os_family == 'Debian' else 'NetworkManager' }}"
+    state: restarted
+
+- name: SSH 서비스 재시작
+  systemd:
+    name: sshd
+    state: restarted
+
+- name: 설치 완료 알림
+  uri:
+    url: "{{ notification_webhook }}"
+    method: POST
+    body_format: json
+    body:
+      text: "{{ inventory_hostname }}에서 OS 설치가 완료되었습니다."
+  when: notification_enabled and notification_webhook is defined
+  delegate_to: localhost

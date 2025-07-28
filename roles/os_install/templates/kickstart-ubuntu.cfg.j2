@@ -1,0 +1,101 @@
+# Ubuntu 자동 설치를 위한 Preseed 설정
+# {{ ansible_managed }}
+
+# 언어 및 지역 설정
+d-i debian-installer/language string ko
+d-i debian-installer/country string KR
+d-i debian-installer/locale string ko_KR.UTF-8
+
+# 키보드 설정
+d-i keyboard-configuration/xkb-keymap select kr
+
+# 네트워크 설정
+d-i netcfg/choose_interface select {{ network_interface }}
+{% if use_dhcp %}
+d-i netcfg/use_dhcp boolean true
+{% else %}
+d-i netcfg/disable_dhcp boolean true
+d-i netcfg/get_ipaddress string {{ static_ip }}
+d-i netcfg/get_netmask string {{ netmask }}
+d-i netcfg/get_gateway string {{ gateway }}
+d-i netcfg/get_nameservers string {{ dns_servers | join(' ') }}
+{% endif %}
+d-i netcfg/get_hostname string {{ inventory_hostname }}
+d-i netcfg/get_domain string {{ domain_name | default('local') }}
+
+# Mirror 설정
+d-i mirror/country string manual
+d-i mirror/http/hostname string kr.archive.ubuntu.com
+d-i mirror/http/directory string /ubuntu
+d-i mirror/http/proxy string
+
+# 사용자 계정 설정
+d-i passwd/root-login boolean false
+d-i passwd/make-user boolean {{ create_admin_user }}
+{% if create_admin_user %}
+d-i passwd/user-fullname string {{ admin_username }}
+d-i passwd/username string {{ admin_username }}
+d-i passwd/user-password-crypted password {{ admin_password | password_hash('sha512') }}
+{% endif %}
+
+# 시계 설정
+d-i clock-setup/utc boolean true
+d-i time/zone string Asia/Seoul
+d-i clock-setup/ntp boolean true
+
+# 디스크 파티셔닝
+d-i partman-auto/disk string {{ target_disk }}
+d-i partman-auto/method string {{ partition_scheme }}
+
+{% if partition_scheme == "auto" %}
+# 자동 파티셔닝
+d-i partman-auto/choose_recipe select atomic
+d-i partman-partitioning/confirm_write_new_label boolean true
+d-i partman/choose_partition select finish
+d-i partman/confirm boolean true
+d-i partman/confirm_nooverwrite boolean true
+{% else %}
+# 커스텀 파티셔닝 (필요시 수정)
+d-i partman-auto/expert_recipe string                         \
+      boot-root ::                                            \
+              1024 1024 1024 ext4                            \
+                      $primary{ } $bootable{ }                \
+                      method{ format } format{ }              \
+                      use_filesystem{ } filesystem{ ext4 }    \
+                      mountpoint{ /boot }                     \
+              .                                               \
+              4096 4096 4096 linux-swap                      \
+                      method{ swap } format{ }                \
+              .                                               \
+              10240 10240 -1 ext4                            \
+                      method{ format } format{ }              \
+                      use_filesystem{ } filesystem{ ext4 }    \
+                      mountpoint{ / }                         \
+              .
+{% endif %}
+
+# 패키지 선택
+tasksel tasksel/first multiselect standard, server
+d-i pkgsel/include string {{ base_packages | join(' ') }}
+d-i pkgsel/upgrade select full-upgrade
+d-i pkgsel/update-policy select unattended-upgrades
+
+# GRUB 설정
+d-i grub-installer/only_debian boolean true
+d-i grub-installer/with_other_os boolean true
+d-i grub-installer/bootdev string {{ target_disk }}
+
+# 설치 완료 후 재부팅
+d-i finish-install/reboot_in_progress note
+
+# Late commands (설치 후 실행)
+d-i preseed/late_command string \
+{% if disable_root_ssh %}
+    sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' /target/etc/ssh/sshd_config; \
+{% endif %}
+{% if ssh_port != 22 %}
+    sed -i 's/^#Port 22/Port {{ ssh_port }}/' /target/etc/ssh/sshd_config; \
+{% endif %}
+    echo '{{ admin_username }} ALL=(ALL) NOPASSWD:ALL' >> /target/etc/sudoers.d/{{ admin_username }}; \
+    chmod 440 /target/etc/sudoers.d/{{ admin_username }}; \
+    in-target systemctl enable ssh

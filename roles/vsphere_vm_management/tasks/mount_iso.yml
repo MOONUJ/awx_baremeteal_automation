@@ -1,0 +1,82 @@
+---
+# ISO 파일 마운트 태스크
+
+- name: ISO 파일 경로 검증
+  ansible.builtin.assert:
+    that:
+      - iso_path is defined
+      - iso_path | length > 0
+    fail_msg: "ISO 파일 경로가 지정되지 않았습니다"
+
+- name: 현재 CD/DVD 설정 확인
+  community.vmware.vmware_guest_info:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    port: "{{ vcenter_port }}"
+    validate_certs: "{{ vcenter_validate_certs }}"
+    datacenter: "{{ datacenter }}"
+    name: "{{ vm_name }}"
+  register: current_vm_info
+  delegate_to: localhost
+
+- name: CD/DVD 드라이브에 ISO 마운트
+  community.vmware.vmware_guest:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    port: "{{ vcenter_port }}"
+    validate_certs: "{{ vcenter_validate_certs }}"
+    datacenter: "{{ datacenter }}"
+    name: "{{ vm_name }}"
+    state: present
+    cdrom:
+      - controller_type: "{{ cdrom_controller_type }}"
+        controller_number: "{{ cdrom_controller_number }}"
+        unit_number: "{{ cdrom_unit_number }}"
+        type: "{{ cdrom_type }}"
+        iso_path: "{{ iso_path }}"
+        state: present
+  register: iso_mount_result
+  delegate_to: localhost
+  retries: "{{ iso_mount_retries }}"
+  delay: "{{ iso_mount_delay }}"
+  until: iso_mount_result is succeeded
+
+- name: 부팅 순서를 CD-ROM 우선으로 설정
+  community.vmware.vmware_guest:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    port: "{{ vcenter_port }}"
+    validate_certs: "{{ vcenter_validate_certs }}"
+    datacenter: "{{ datacenter }}"
+    name: "{{ vm_name }}"
+    state: present
+    boot_firmware: "{{ boot_firmware }}"
+    boot_order: "{{ boot_order }}"
+  delegate_to: localhost
+
+- name: ISO 마운트 완료 확인
+  community.vmware.vmware_guest_info:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    port: "{{ vcenter_port }}"
+    validate_certs: "{{ vcenter_validate_certs }}"
+    datacenter: "{{ datacenter }}"
+    name: "{{ vm_name }}"
+  register: updated_vm_info
+  delegate_to: localhost
+
+- name: ISO 마운트 결과 출력
+  ansible.builtin.debug:
+    msg:
+      - "ISO 마운트 완료: {{ iso_path }}"
+      - "VM: {{ vm_name }}"
+      - "부팅 순서: {{ boot_order | join(', ') }}"
+
+- name: ISO 마운트 실패시 알림
+  ansible.builtin.fail:
+    msg: "ISO 파일 마운트에 실패했습니다: {{ iso_mount_result.msg | default('Unknown error') }}"
+  when: iso_mount_result is failed

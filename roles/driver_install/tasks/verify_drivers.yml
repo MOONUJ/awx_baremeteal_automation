@@ -1,0 +1,109 @@
+---
+- name: 드라이버 검증 시작
+  debug:
+    msg: "설치된 드라이버들을 검증합니다"
+
+- name: 로드된 커널 모듈 확인
+  command: lsmod
+  register: loaded_modules
+  changed_when: false
+
+- name: 네트워크 드라이버 검증
+  block:
+    - name: 네트워크 인터페이스 상태 확인
+      command: ip link show
+      register: network_interfaces
+      changed_when: false
+
+    - name: 네트워크 드라이버 정보 확인
+      shell: for iface in $(ls /sys/class/net/ | grep -v lo); do echo "$iface: $(ethtool -i $iface 2>/dev/null | grep -E 'driver|version' | tr '\n' ' ')"; done
+      register: network_driver_info
+      changed_when: false
+
+    - name: 네트워크 연결 테스트
+      command: ping -c 3 {{ gateway }}
+      register: network_connectivity
+      ignore_errors: yes
+
+  when: install_network_drivers
+
+- name: 스토리지 드라이버 검증
+  block:
+    - name: 블록 디바이스 확인
+      command: lsblk
+      register: block_devices
+      changed_when: false
+
+    - name: RAID 컨트롤러 상태 확인
+      command: lspci | grep -i raid
+      register: raid_controllers
+      changed_when: false
+      ignore_errors: yes
+
+    - name: NVMe 디바이스 확인
+      command: nvme list
+      register: nvme_devices
+      changed_when: false
+      ignore_errors: yes
+
+  when: install_storage_drivers
+
+- name: GPU 드라이버 검증
+  block:
+    - name: NVIDIA GPU 상태 확인
+      command: nvidia-smi
+      register: nvidia_status
+      changed_when: false
+      ignore_errors: yes
+
+    - name: AMD GPU 상태 확인
+      command: rocm-smi
+      register: amd_status
+      changed_when: false
+      ignore_errors: yes
+
+  when: install_gpu_drivers
+
+- name: 하드웨어 기능 테스트
+  block:
+    - name: 네트워크 처리량 테스트 (간단)
+      shell: timeout 10 iperf3 -c {{ test_server | default(gateway) }} -t 5
+      register: network_performance
+      ignore_errors: yes
+      when: test_network_performance | default(false)
+
+    - name: 디스크 I/O 테스트 (간단)
+      shell: timeout 30 dd if=/dev/zero of=/tmp/testfile bs=1G count=1 oflag=direct 2>&1 | grep copied
+      register: disk_performance
+      ignore_errors: yes
+      when: test_disk_performance | default(false)
+
+  when: test_driver_functionality
+
+- name: 드라이버 검증 결과 요약
+  debug:
+    msg: |
+      === 드라이버 검증 결과 ===
+      네트워크 인터페이스: {{ network_interfaces.stdout_lines | length if network_interfaces is defined else 'N/A' }}개
+      {% if network_driver_info is defined %}
+      네트워크 드라이버: {{ network_driver_info.stdout_lines }}
+      {% endif %}
+      블록 디바이스: {{ block_devices.stdout_lines | length if block_devices is defined else 'N/A' }}개
+      {% if nvidia_status is defined and nvidia_status.rc == 0 %}
+      NVIDIA GPU: 정상
+      {% endif %}
+      {% if amd_status is defined and amd_status.rc == 0 %}
+      AMD GPU: 정상
+      {% endif %}
+
+- name: 검증 실패시 경고
+  fail:
+    msg: "중요한 드라이버 검증에 실패했습니다. 로그를 확인하세요."
+  when: 
+    - verify_driver_load
+    - network_connectivity is defined and network_connectivity.rc != 0
+  ignore_errors: "{{ ignore_verification_failures | default(true) }}"
+
+- name: 드라이버 검증 완료
+  debug:
+    msg: "드라이버 검증이 완료되었습니다"

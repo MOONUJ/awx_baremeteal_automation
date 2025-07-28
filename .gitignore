@@ -1,0 +1,60 @@
+# Ansible
+*.retry
+.vault_pass
+vault_pass.txt
+.vscode
+# 로그 파일
+*.log
+logs/
+
+# 임시 파일
+tmp/
+.tmp/
+/tmp/
+
+# 캐시 파일
+.cache/
+__pycache__/
+*.pyc
+*.pyo
+/fact_cache/
+
+# IDE 설정
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS 관련
+.DS_Store
+Thumbs.db
+
+# 백업 파일
+*.backup
+*.bak
+*.orig
+
+# 민감한 정보
+secrets/
+private_keys/
+*.key
+*.pem
+*.crt
+
+# 테스트 관련
+test_output/
+.pytest_cache/
+
+# Vagrant
+.vagrant/
+
+# Terraform
+*.tfstate
+*.tfstate.backup
+.terraform/
+
+# 펌웨어 및 드라이버 파일들
+firmware/
+drivers/
+iso_files/

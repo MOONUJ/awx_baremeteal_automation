@@ -1,0 +1,47 @@
+---
+# ISO 파일 검증 태스크
+
+- name: ISO 파일 존재 확인
+  ansible.builtin.stat:
+    path: "{{ iso_path }}"
+  register: iso_file_stat
+
+- name: ISO 파일 존재 여부 검증
+  ansible.builtin.fail:
+    msg: "{{ iso_type | capitalize }} ISO 파일이 존재하지 않습니다: {{ iso_path }}"
+  when: not iso_file_stat.stat.exists
+
+- name: ISO 파일 크기 확인
+  ansible.builtin.debug:
+    msg: "{{ iso_type | capitalize }} ISO 파일 크기: {{ (iso_file_stat.stat.size / 1024 / 1024) | round(2) }}MB"
+
+- name: ISO 파일 포맷 검증
+  ansible.builtin.shell: |
+    file "{{ iso_path }}" | grep -i "iso 9660"
+  register: iso_format_check
+  failed_when: iso_format_check.rc != 0
+  changed_when: false
+
+- name: ISO 부팅 가능 여부 확인
+  ansible.builtin.shell: |
+    isoinfo -d -i "{{ iso_path }}" | grep -i "bootable"
+  register: iso_bootable_check
+  failed_when: false
+  changed_when: false
+
+- name: ISO 검증 결과 출력
+  ansible.builtin.debug:
+    msg:
+      - "{{ iso_type | capitalize }} ISO 검증 완료"
+      - "파일: {{ iso_path }}"
+      - "크기: {{ (iso_file_stat.stat.size / 1024 / 1024) | round(2) }}MB"
+      - "포맷: ISO 9660"
+      - "부팅 가능: {{ 'Yes' if iso_bootable_check.rc == 0 else 'No' }}"
+
+- name: 로그 기록
+  ansible.builtin.lineinfile:
+    path: "{{ log_file }}"
+    line: "{{ ansible_date_time.iso8601 }} - {{ iso_type | capitalize }} ISO 검증 완료: {{ iso_path }}"
+    create: yes
+  when: enable_iso_logging
+  become: yes

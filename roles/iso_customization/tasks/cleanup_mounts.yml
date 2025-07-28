@@ -1,0 +1,36 @@
+---
+# 마운트 포인트 정리 태스크
+
+- name: 현재 마운트된 포인트 확인
+  ansible.builtin.shell: |
+    mount | grep "{{ mount_dir }}" || true
+  register: current_mounts
+  changed_when: false
+
+- name: 기존 마운트 포인트 언마운트
+  ansible.posix.mount:
+    path: "{{ mount_dir }}"
+    state: unmounted
+  become: yes
+  when: mount_dir in current_mounts.stdout
+  ignore_errors: yes
+
+- name: 강제 언마운트 (필요시)
+  ansible.builtin.shell: |
+    umount -f "{{ mount_dir }}" || true
+  become: yes
+  when: mount_dir in current_mounts.stdout
+  ignore_errors: yes
+
+- name: 루프 디바이스 정리
+  ansible.builtin.shell: |
+    losetup -a | grep "{{ base_iso_path }}" | cut -d: -f1 | xargs -r losetup -d
+  become: yes
+  ignore_errors: yes
+
+- name: 마운트 디렉토리 권한 재설정
+  ansible.builtin.file:
+    path: "{{ mount_dir }}"
+    state: directory
+    mode: "{{ iso_dir_permissions }}"
+  when: cleanup_mount_points

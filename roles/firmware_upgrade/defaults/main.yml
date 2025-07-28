@@ -1,0 +1,33 @@
+---
+# 펌웨어 업그레이드 기본 변수
+
+# 하드웨어 벤더 설정
+hardware_vendor: "dell"  # dell, hp, supermicro, lenovo
+
+# 펌웨어 파일 경로
+firmware_repo_url: "http://{{ firmware_server | default('192.168.1.100') }}/firmware"
+firmware_local_path: "/tmp/firmware"
+
+# Dell 설정
+dell_bios_version: "2.18.0"
+dell_idrac_version: "6.10.30.00"
+dell_nic_version: "21.80.8"
+
+# HP 설정  
+hp_bios_version: "U46"
+hp_ilo_version: "2.78"
+hp_smartarray_version: "5.14"
+
+# 업그레이드 설정
+force_upgrade: false
+backup_current_firmware: true  
+reboot_after_upgrade: true
+upgrade_timeout: 1800  # 30분
+
+# 검증 설정
+verify_after_upgrade: true
+rollback_on_failure: true
+
+# 로깅
+log_firmware_changes: true
+firmware_log_path: "/var/log/firmware-upgrade.log"

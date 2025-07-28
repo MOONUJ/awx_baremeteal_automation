@@ -1,0 +1,46 @@
+---
+# 모든 베어메탈 서버에 적용되는 공통 변수
+
+# 기본 인증 정보
+ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+ansible_python_interpreter: /usr/bin/python3
+
+# 타임존 설정
+timezone: "Asia/Seoul"
+
+# NTP 서버
+ntp_servers:
+  - 0.kr.pool.ntp.org
+  - 1.kr.pool.ntp.org
+  - 2.kr.pool.ntp.org
+
+# 로깅 설정
+log_level: INFO
+centralized_logging: true
+log_server: "192.168.1.100"
+
+# 보안 설정
+ssh_port: 22
+disable_root_login: true
+enable_fail2ban: true
+
+# 모니터링 설정
+install_monitoring_agent: true
+monitoring_server: "192.168.1.100"
+
+# 백업 설정
+backup_enabled: true
+backup_server: "192.168.1.100"
+
+# 업데이트 설정
+auto_update_enabled: false
+update_schedule: "0 2 * * 0"  # 매주 일요일 오전 2시
+
+# 재부팅 정책
+allow_reboot: true
+reboot_timeout: 600
+
+# 알림 설정
+notification_enabled: true
+notification_webhook: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+notification_email: "admin@company.com"

@@ -1,0 +1,102 @@
+# CentOS/RHEL 자동 설치를 위한 Kickstart 설정
+# {{ ansible_managed }}
+
+# 설치 모드
+install
+text
+
+# 설치 소스
+url --url="http://{{ nfs_server }}/centos/{{ os_version }}/os/x86_64/"
+
+# 언어 및 키보드 설정  
+lang ko_KR.UTF-8
+keyboard kr
+
+# 네트워크 설정
+{% if use_dhcp %}
+network --bootproto=dhcp --device={{ network_interface }} --onboot=on --hostname={{ inventory_hostname }}
+{% else %}
+network --bootproto=static --device={{ network_interface }} --ip={{ static_ip }} --netmask={{ netmask }} --gateway={{ gateway }} --nameserver={{ dns_servers | join(',') }} --onboot=on --hostname={{ inventory_hostname }}
+{% endif %}
+
+# 시간대 설정
+timezone Asia/Seoul --isUtc
+
+# 인증 설정
+auth --enableshadow --passalgo=sha512
+
+# 사용자 계정
+{% if create_admin_user %}
+user --name={{ admin_username }} --password={{ admin_password | password_hash('sha512') }} --iscrypted --groups=wheel
+{% endif %}
+rootpw --iscrypted {{ root_password | password_hash('sha512') }}
+
+# SELinux 설정
+selinux --enforcing
+
+# 방화벽 설정
+{% if enable_firewall %}
+firewall --enabled --ssh
+{% else %}
+firewall --disabled
+{% endif %}
+
+# 디스크 파티셔닝
+clearpart --drives={{ target_disk }} --all --initlabel
+
+{% if partition_scheme == "auto" %}
+# 자동 파티셔닝
+autopart --type=lvm
+{% else %}
+# 커스텀 파티셔닝
+part /boot --fstype="ext4" --ondisk={{ target_disk.split('/')[-1] }} --size=1024
+part pv.01 --fstype="lvmpv" --ondisk={{ target_disk.split('/')[-1] }} --grow
+volgroup vg_root pv.01
+logvol swap --fstype="swap" --size=4096 --name=lv_swap --vgname=vg_root
+logvol / --fstype="{{ filesystem_type }}" --grow --size=10240 --name=lv_root --vgname=vg_root
+{% endif %}
+
+# 부트로더 설정
+bootloader --location=mbr --driveorder={{ target_disk.split('/')[-1] }} --append="rhgb quiet"
+
+# 패키지 선택
+%packages --nobase --ignoremissing
+@core
+@base
+{{ base_packages | join('\n') }}
+%end
+
+# 설치 후 스크립트
+%post --log=/root/ks-post.log
+# SSH 설정
+{% if disable_root_ssh %}
+sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+{% endif %}
+{% if ssh_port != 22 %}
+sed -i 's/^#Port 22/Port {{ ssh_port }}/' /etc/ssh/sshd_config
+{% endif %}
+
+# Sudo 설정
+{% if create_admin_user %}
+echo '{{ admin_username }} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{{ admin_username }}
+chmod 440 /etc/sudoers.d/{{ admin_username }}
+{% endif %}
+
+# 서비스 활성화
+systemctl enable sshd
+systemctl enable NetworkManager
+
+# 네트워크 관리자 설정
+{% if not use_dhcp %}
+nmcli con mod "{{ network_interface }}" ipv4.method manual ipv4.addresses "{{ static_ip }}/24" ipv4.gateway "{{ gateway }}" ipv4.dns "{{ dns_servers | join(',') }}"
+{% endif %}
+
+# 시간 동기화
+systemctl enable chronyd
+
+# 로그 남기기
+echo "Kickstart 설치 완료: $(date)" >> /root/install.log
+%end
+
+# 재부팅
+reboot

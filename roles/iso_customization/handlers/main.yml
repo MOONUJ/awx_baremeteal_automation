@@ -1,0 +1,33 @@
+---
+# ISO 커스터마이징 핸들러
+
+- name: cleanup temporary files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ work_dir }}"
+    - "{{ mount_dir }}"
+    - "{{ extract_dir }}"
+
+- name: unmount iso
+  ansible.posix.mount:
+    path: "{{ mount_dir }}"
+    state: unmounted
+  become: yes
+  ignore_errors: yes
+
+- name: detach loop devices
+  ansible.builtin.shell: |
+    losetup -a | grep "{{ base_iso_path }}" | cut -d: -f1 | xargs -r losetup -d
+  become: yes
+  ignore_errors: yes
+
+- name: update repo index
+  ansible.builtin.shell: |
+    cd "{{ custom_iso_output_path }}" && ls -la *.iso > iso_index.txt
+  ignore_errors: yes
+
+- name: send notification
+  ansible.builtin.debug:
+    msg: "ISO 커스터마이징 핸들러 실행됨: {{ custom_iso_name }}"

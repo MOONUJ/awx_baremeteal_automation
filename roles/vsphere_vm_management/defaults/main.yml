@@ -1,0 +1,55 @@
+---
+# vSphere VM 관리 기본 변수
+
+# vCenter 연결 설정
+vcenter_hostname: "vcenter.example.com"
+vcenter_username: "administrator@vsphere.local"
+vcenter_password: "{{ vault_vcenter_password }}"
+vcenter_port: 443
+vcenter_validate_certs: false
+
+# VM 기본 설정
+vm_datacenter: "Datacenter"
+vm_cluster: "Cluster"
+vm_folder: "/"
+vm_resource_pool: ""
+
+# ISO 마운트 설정
+iso_mount_timeout: 300
+iso_mount_retries: 3
+iso_mount_delay: 10
+
+# 전원 관리 설정
+power_on_timeout: 180
+power_off_timeout: 120
+power_off_force: false
+boot_delay: 5000  # milliseconds
+
+# VM 하드웨어 설정
+vm_memory_mb: 8192
+vm_num_cpus: 4
+vm_num_cpu_cores_per_socket: 1
+vm_scsi_type: paravirtual
+vm_disk_size_gb: 50
+vm_network_name: "VM Network"
+vm_hardware_version: "vmx-19"
+vm_guest_os: "vmwarePhoton64Guest"
+
+# CD/DVD 드라이브 설정
+cdrom_controller_type: "ide"
+cdrom_controller_number: 0
+cdrom_unit_number: 0
+cdrom_type: "iso"
+cdrom_iso_path: ""
+
+# 부팅 설정
+boot_firmware: "bios"  # bios, efi
+boot_order:
+  - cdrom
+  - disk
+  - ethernet
+  - floppy
+
+# 로깅 설정
+enable_vm_logging: true
+vm_log_level: "info"

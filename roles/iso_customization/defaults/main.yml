@@ -1,0 +1,100 @@
+---
+# ISO 커스터마이징 기본 변수
+
+# 기본 ISO 설정
+base_iso_path: "/srv/isos/base/VMware-ESXi-8.0.0-base.iso"
+custom_iso_output_path: "/srv/isos/custom"
+custom_iso_name: "VMware-ESXi-{{ esxi_version | default('8.0.0') }}-custom-{{ inventory_hostname }}.iso"
+
+# 작업 디렉토리
+work_dir: "/tmp/iso_work"
+mount_dir: "{{ work_dir }}/iso_mount"
+extract_dir: "{{ work_dir }}/iso_extract"
+
+# ESXi 버전 설정
+esxi_version: "8.0.0"
+esxi_build: "20513097"
+
+# 킥스타트 파일 설정
+kickstart_filename: "ks.cfg"
+kickstart_template: "kickstart-esxi.cfg.j2"
+
+# ISO 라벨 및 볼륨 설정
+iso_label: "ESXI-{{ esxi_version | replace('.', '') }}"
+iso_volume_id: "{{ iso_label }}"
+
+# 부팅 설정
+boot_catalog: "boot.catalog"
+boot_image: "isolinux.bin"
+boot_sector: "isolinux/isolinux.bin"
+
+# 필요한 패키지 확인
+required_packages:
+  - genisoimage
+  - isomd5sum
+  - mount
+
+# 파일 권한 설정
+iso_file_permissions: "644"
+iso_dir_permissions: "755"
+
+# 로깅 설정
+enable_iso_logging: true
+log_file: "/var/log/iso_customization.log"
+
+# 정리 설정
+cleanup_work_dir: true
+cleanup_mount_points: true
+
+# 검증 설정
+verify_base_iso: true
+verify_custom_iso: true
+calculate_checksums: true
+
+# 병렬 처리 설정
+max_concurrent_isos: 2
+
+# 재시도 설정
+mount_retries: 3
+mount_delay: 5
+
+# ESXi 네트워크 설정 (킥스타트용)
+esxi_use_dhcp: false
+esxi_network_device: "vmnic0"
+esxi_netmask: "255.255.255.0"
+esxi_gateway: "192.168.1.1"
+esxi_dns_servers:
+  - "8.8.8.8"
+  - "8.8.4.4"
+
+# ESXi 시스템 설정
+esxi_root_password: "VMware123!"
+esxi_timezone: "Asia/Seoul"
+esxi_ntp_servers:
+  - "pool.ntp.org"
+  - "time.nist.gov"
+esxi_datastore_name: "datastore1"
+esxi_enable_ssh: true
+esxi_enable_shell: false
+esxi_enable_snmp: false
+
+# 고급 ESXi 옵션
+esxi_advanced_options: []
+#  - key: "UserVars.SuppressShellWarning"
+#    value: "1"
+#    type: "int"
+
+# 로컬 사용자 계정
+esxi_local_users: []
+#  - username: "admin"
+#    password: "Admin123!"
+#    description: "Local Administrator"
+#    roles: ["Admin"]
+
+# 방화벽 규칙
+esxi_firewall_rules: []
+#  - ruleset: "sshServer"
+#    enabled: true
+
+# 커스텀 명령어
+esxi_custom_commands: []

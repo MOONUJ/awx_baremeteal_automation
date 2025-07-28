@@ -1,0 +1,73 @@
+---
+# 커스텀 ISO 생성 태스크
+
+- name: 출력 경로 권한 확인
+  ansible.builtin.file:
+    path: "{{ custom_iso_output_path }}"
+    state: directory
+    mode: "{{ iso_dir_permissions }}"
+
+- name: 기존 커스텀 ISO 삭제 (있는 경우)
+  ansible.builtin.file:
+    path: "{{ custom_iso_output_path }}/{{ custom_iso_name }}"
+    state: absent
+
+- name: genisoimage를 사용한 ISO 생성
+  ansible.builtin.shell: |
+    genisoimage \
+      -relaxed-filenames \
+      -J \
+      -R \
+      -o "{{ custom_iso_output_path }}/{{ custom_iso_name }}" \
+      -b isolinux/isolinux.bin \
+      -c isolinux/boot.cat \
+      -no-emul-boot \
+      -boot-load-size 4 \
+      -boot-info-table \
+      -eltorito-alt-boot \
+      -e efi/boot/bootx64.efi \
+      -no-emul-boot \
+      -V "{{ iso_label }}" \
+      "{{ extract_dir }}"
+  register: iso_creation_result
+  args:
+    chdir: "{{ extract_dir }}"
+
+- name: ISO 생성 결과 확인
+  ansible.builtin.fail:
+    msg: "ISO 생성에 실패했습니다: {{ iso_creation_result.stderr }}"
+  when: iso_creation_result.rc != 0
+
+- name: ISO 하이브리드 부팅 지원 추가
+  ansible.builtin.shell: |
+    isohybrid "{{ custom_iso_output_path }}/{{ custom_iso_name }}"
+  register: hybrid_result
+  failed_when: false
+  changed_when: hybrid_result.rc == 0
+
+- name: 생성된 ISO 파일 권한 설정
+  ansible.builtin.file:
+    path: "{{ custom_iso_output_path }}/{{ custom_iso_name }}"
+    mode: "{{ iso_file_permissions }}"
+
+- name: 생성된 ISO 파일 정보 확인
+  ansible.builtin.stat:
+    path: "{{ custom_iso_output_path }}/{{ custom_iso_name }}"
+  register: custom_iso_stat
+
+- name: ISO 생성 완료 로그
+  ansible.builtin.lineinfile:
+    path: "{{ log_file }}"
+    line: "{{ ansible_date_time.iso8601 }} - 커스텀 ISO 생성 완료: {{ custom_iso_output_path }}/{{ custom_iso_name }} ({{ (custom_iso_stat.stat.size / 1024 / 1024) | round(2) }}MB)"
+    create: yes
+  when: enable_iso_logging
+  become: yes
+
+- name: ISO 생성 결과 출력
+  ansible.builtin.debug:
+    msg:
+      - "커스텀 ISO 생성 성공"
+      - "파일: {{ custom_iso_output_path }}/{{ custom_iso_name }}"
+      - "크기: {{ (custom_iso_stat.stat.size / 1024 / 1024) | round(2) }}MB"
+      - "라벨: {{ iso_label }}"
+      - "하이브리드 부팅: {{ 'Enabled' if hybrid_result.rc == 0 else 'Failed' }}"

@@ -1,0 +1,122 @@
+---
+# vSphere VM 관리 메인 태스크
+
+- name: vCenter 연결 정보 검증
+  ansible.builtin.assert:
+    that:
+      - vcenter_hostname is defined
+      - vcenter_username is defined  
+      - vcenter_password is defined
+    fail_msg: "vCenter 연결 정보가 누락되었습니다"
+
+- name: VM 정보 검증
+  ansible.builtin.assert:
+    that:
+      - vm_name is defined
+      - datacenter is defined
+    fail_msg: "VM 이름과 데이터센터 정보가 필요합니다"
+
+- name: vCenter에서 VM 정보 조회
+  community.vmware.vmware_guest_info:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    port: "{{ vcenter_port }}"
+    validate_certs: "{{ vcenter_validate_certs }}"
+    datacenter: "{{ datacenter }}"
+    name: "{{ vm_name }}"
+  register: vm_info
+  delegate_to: localhost
+
+- name: VM 존재 여부 확인
+  ansible.builtin.fail:
+    msg: "VM '{{ vm_name }}'을 찾을 수 없습니다"
+  when: vm_info.instance is not defined
+
+- name: VM 상태 정보 출력
+  ansible.builtin.debug:
+    msg: 
+      - "VM 이름: {{ vm_name }}"
+      - "현재 전원 상태: {{ vm_info.instance.hw_power_status }}"
+      - "게스트 OS: {{ vm_info.instance.hw_guest_full_name | default('Unknown') }}"
+      - "메모리: {{ vm_info.instance.hw_memtotal_mb }}MB"
+      - "CPU: {{ vm_info.instance.hw_processor_count }}개"
+
+- name: VM 전원 끄기 (필요시)
+  community.vmware.vmware_guest_powerstate:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    port: "{{ vcenter_port }}"
+    validate_certs: "{{ vcenter_validate_certs }}"
+    name: "{{ vm_name }}"
+    datacenter: "{{ datacenter }}"
+    state: shutdown-guest
+    state_change_timeout: "{{ power_off_timeout }}"
+    force: "{{ power_off_force }}"
+  delegate_to: localhost
+  when: 
+    - vm_info.instance.hw_power_status == "poweredOn"
+    - vm_action is defined and vm_action in ['mount_iso', 'reconfigure']
+
+- name: VM 전원이 완전히 꺼질 때까지 대기
+  community.vmware.vmware_guest_info:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    port: "{{ vcenter_port }}"
+    validate_certs: "{{ vcenter_validate_certs }}"
+    datacenter: "{{ datacenter }}"
+    name: "{{ vm_name }}"
+  register: vm_power_check
+  until: vm_power_check.instance.hw_power_status == "poweredOff"
+  retries: 12
+  delay: 10
+  delegate_to: localhost
+  when: 
+    - vm_info.instance.hw_power_status == "poweredOn"
+    - vm_action is defined and vm_action in ['mount_iso', 'reconfigure']
+
+- name: ISO 파일 마운트 태스크 실행
+  ansible.builtin.include_tasks: mount_iso.yml
+  when: vm_action is defined and vm_action == 'mount_iso'
+
+- name: VM 설정 변경 태스크 실행  
+  ansible.builtin.include_tasks: reconfigure_vm.yml
+  when: vm_action is defined and vm_action == 'reconfigure'
+
+- name: VM 전원 켜기
+  community.vmware.vmware_guest_powerstate:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    port: "{{ vcenter_port }}"
+    validate_certs: "{{ vcenter_validate_certs }}"
+    name: "{{ vm_name }}"
+    datacenter: "{{ datacenter }}"
+    state: powered-on
+    state_change_timeout: "{{ power_on_timeout }}"
+  delegate_to: localhost
+  when: 
+    - vm_action is defined and vm_action in ['power_on', 'mount_iso', 'reconfigure']
+    - vm_power_check is not defined or vm_power_check.instance.hw_power_status == "poweredOff"
+
+- name: VM 부팅 대기
+  ansible.builtin.pause:
+    seconds: "{{ boot_delay // 1000 }}"
+  when: vm_action is defined and vm_action in ['power_on', 'mount_iso', 'reconfigure']
+
+- name: VM 전원 끄기
+  community.vmware.vmware_guest_powerstate:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    port: "{{ vcenter_port }}"
+    validate_certs: "{{ vcenter_validate_certs }}"
+    name: "{{ vm_name }}"
+    datacenter: "{{ datacenter }}"
+    state: shutdown-guest
+    state_change_timeout: "{{ power_off_timeout }}"
+    force: "{{ power_off_force }}"
+  delegate_to: localhost
+  when: vm_action is defined and vm_action == 'power_off'

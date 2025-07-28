@@ -1,0 +1,107 @@
+---
+# ISO 커스터마이징 메인 태스크
+
+- name: 필요한 패키지 설치 확인
+  ansible.builtin.package:
+    name: "{{ required_packages }}"
+    state: present
+  become: yes
+
+- name: 기본 ISO 파일 존재 확인
+  ansible.builtin.stat:
+    path: "{{ base_iso_path }}"
+  register: base_iso_stat
+
+- name: 기본 ISO 파일 검증
+  ansible.builtin.fail:
+    msg: "기본 ISO 파일이 존재하지 않습니다: {{ base_iso_path }}"
+  when: not base_iso_stat.stat.exists
+
+- name: 작업 디렉토리 생성
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "{{ iso_dir_permissions }}"
+  loop:
+    - "{{ work_dir }}"
+    - "{{ mount_dir }}"
+    - "{{ extract_dir }}"
+    - "{{ custom_iso_output_path }}"
+
+- name: 기존 마운트 포인트 정리
+  ansible.builtin.include_tasks: cleanup_mounts.yml
+
+- name: 기본 ISO 무결성 검증
+  ansible.builtin.include_tasks: verify_iso.yml
+  vars:
+    iso_path: "{{ base_iso_path }}"
+    iso_type: "base"
+  when: verify_base_iso
+
+- name: 기본 ISO 마운트
+  ansible.posix.mount:
+    path: "{{ mount_dir }}"
+    src: "{{ base_iso_path }}"
+    fstype: iso9660
+    opts: ro,loop
+    state: mounted
+  become: yes
+  register: mount_result
+  retries: "{{ mount_retries }}"
+  delay: "{{ mount_delay }}"
+
+- name: ISO 내용 추출
+  ansible.builtin.copy:
+    src: "{{ mount_dir }}/"
+    dest: "{{ extract_dir }}/"
+    remote_src: yes
+    mode: preserve
+  become: yes
+
+- name: 기본 ISO 언마운트
+  ansible.posix.mount:
+    path: "{{ mount_dir }}"
+    state: unmounted
+  become: yes
+
+- name: 추출된 파일 권한 수정
+  ansible.builtin.file:
+    path: "{{ extract_dir }}"
+    mode: "{{ iso_dir_permissions }}"
+    recurse: yes
+
+- name: 킥스타트 파일 생성
+  ansible.builtin.template:
+    src: "{{ kickstart_template }}"
+    dest: "{{ extract_dir }}/{{ kickstart_filename }}"
+    mode: "{{ iso_file_permissions }}"
+
+- name: 부트 구성 파일 수정
+  ansible.builtin.include_tasks: modify_boot_config.yml
+
+- name: 커스텀 ISO 생성
+  ansible.builtin.include_tasks: create_custom_iso.yml
+
+- name: 커스텀 ISO 검증
+  ansible.builtin.include_tasks: verify_iso.yml
+  vars:
+    iso_path: "{{ custom_iso_output_path }}/{{ custom_iso_name }}"
+    iso_type: "custom"
+  when: verify_custom_iso
+
+- name: 체크섬 계산
+  ansible.builtin.include_tasks: calculate_checksums.yml
+  when: calculate_checksums
+
+- name: 작업 디렉토리 정리
+  ansible.builtin.include_tasks: cleanup_work.yml
+  when: cleanup_work_dir
+
+- name: ISO 생성 결과 출력
+  ansible.builtin.debug:
+    msg:
+      - "커스텀 ISO 생성 완료"
+      - "파일 경로: {{ custom_iso_output_path }}/{{ custom_iso_name }}"
+      - "기본 ISO: {{ base_iso_path }}"
+      - "대상 서버: {{ inventory_hostname }}"
+      - "킥스타트: {{ kickstart_filename }} 포함"

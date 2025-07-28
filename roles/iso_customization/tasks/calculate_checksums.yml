@@ -1,0 +1,49 @@
+---
+# 체크섬 계산 태스크
+
+- name: MD5 체크섬 계산
+  ansible.builtin.shell: |
+    md5sum "{{ custom_iso_output_path }}/{{ custom_iso_name }}" > "{{ custom_iso_output_path }}/{{ custom_iso_name }}.md5"
+  register: md5_result
+
+- name: SHA256 체크섬 계산
+  ansible.builtin.shell: |
+    sha256sum "{{ custom_iso_output_path }}/{{ custom_iso_name }}" > "{{ custom_iso_output_path }}/{{ custom_iso_name }}.sha256"
+  register: sha256_result
+
+- name: MD5 체크섬 읽기
+  ansible.builtin.slurp:
+    src: "{{ custom_iso_output_path }}/{{ custom_iso_name }}.md5"
+  register: md5_checksum_raw
+
+- name: SHA256 체크섬 읽기
+  ansible.builtin.slurp:
+    src: "{{ custom_iso_output_path }}/{{ custom_iso_name }}.sha256"
+  register: sha256_checksum_raw
+
+- name: 체크섬 파싱
+  ansible.builtin.set_fact:
+    iso_md5: "{{ (md5_checksum_raw.content | b64decode).split()[0] }}"
+    iso_sha256: "{{ (sha256_checksum_raw.content | b64decode).split()[0] }}"
+
+- name: ISO 메타데이터 파일 생성
+  ansible.builtin.template:
+    src: iso_metadata.json.j2
+    dest: "{{ custom_iso_output_path }}/{{ custom_iso_name }}.json"
+    mode: "{{ iso_file_permissions }}"
+
+- name: 체크섬 로그 기록
+  ansible.builtin.lineinfile:
+    path: "{{ log_file }}"
+    line: "{{ ansible_date_time.iso8601 }} - 체크섬 계산 완료: {{ custom_iso_name }} (MD5: {{ iso_md5[:8] }}..., SHA256: {{ iso_sha256[:8] }}...)"
+    create: yes
+  when: enable_iso_logging
+  become: yes
+
+- name: 체크섬 결과 출력
+  ansible.builtin.debug:
+    msg:
+      - "체크섬 계산 완료"
+      - "MD5: {{ iso_md5 }}"
+      - "SHA256: {{ iso_sha256 }}"
+      - "메타데이터: {{ custom_iso_name }}.json"

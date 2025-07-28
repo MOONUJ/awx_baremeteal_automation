@@ -1,0 +1,75 @@
+---
+- name: Ubuntu 설치 준비
+  debug:
+    msg: "Ubuntu {{ os_version }} 설치를 준비합니다"
+
+- name: Kickstart 파일 생성
+  template:
+    src: "{{ kickstart_template }}"
+    dest: "/tmp/preseed.cfg"
+  delegate_to: localhost
+
+- name: 네트워크 부팅을 위한 PXE 설정
+  block:
+    - name: TFTP 서버에 부트로더 파일 확인
+      wait_for:
+        host: "{{ tftp_server }}"
+        port: 69
+        timeout: 30
+        
+    - name: NFS 서버 마운트 포인트 확인
+      wait_for:
+        host: "{{ nfs_server }}"  
+        port: 2049
+        timeout: 30
+  when: pxe_server is defined
+
+- name: 원격 설치 명령 실행 (iPXE/IPMI 사용)
+  block:
+    - name: IPMI 전원 상태 확인
+      ipmi_power:
+        name: "{{ inventory_hostname }}"
+        user: "{{ ipmi_user | default('ADMIN') }}"
+        password: "{{ ipmi_password }}"
+        state: query
+      register: power_state
+      when: ipmi_host is defined
+
+    - name: IPMI를 통한 PXE 부팅 설정
+      ipmi_boot:
+        name: "{{ inventory_hostname }}"
+        user: "{{ ipmi_user | default('ADMIN') }}"
+        password: "{{ ipmi_password }}"  
+        bootdev: network
+        persistent: no
+      when: ipmi_host is defined
+
+    - name: 시스템 재부팅 (PXE 부팅)
+      ipmi_power:
+        name: "{{ inventory_hostname }}"
+        user: "{{ ipmi_user | default('ADMIN') }}"
+        password: "{{ ipmi_password }}"
+        state: boot
+      when: ipmi_host is defined
+      
+  when: ipmi_host is defined
+
+- name: 설치 진행 모니터링
+  wait_for:
+    timeout: 3600  # 1시간 대기
+    sleep: 30
+  delegate_to: localhost
+
+- name: 설치 완료 후 시스템 재연결 대기
+  wait_for_connection:
+    timeout: 600
+    sleep: 30
+    
+- name: Ubuntu 설치 검증
+  command: lsb_release -a
+  register: ubuntu_version
+  changed_when: false
+  
+- name: 설치 결과 확인
+  debug:
+    msg: "Ubuntu 설치 완료: {{ ubuntu_version.stdout }}"

@@ -1,0 +1,62 @@
+---
+# vm-server01 호스트별 변수
+
+# vSphere VM 정보
+vm_name: "esxi-test-01"
+datacenter: "Datacenter"
+cluster: "Cluster"
+vm_folder: "/"
+
+# ESXi 네트워크 설정
+esxi_hostname: "esxi01.lab.local"
+esxi_static_ip: "192.168.1.101"
+esxi_netmask: "255.255.255.0"
+esxi_gateway: "192.168.1.1"
+esxi_dns_servers:
+  - "192.168.1.10"
+  - "8.8.8.8"
+
+# ESXi 시스템 설정
+esxi_datastore_name: "datastore1-test"
+esxi_root_password: "{{ vault_esxi_root_password | default('ESXi01Pass!') }}"
+
+# ESXi 서비스 설정
+esxi_enable_ssh: true
+esxi_enable_shell: true  # 테스트 환경이므로 활성화
+esxi_enable_snmp: false
+
+# vSwitch 설정
+esxi_vswitch_config:
+  - name: "vSwitch0"
+    uplinks: ["vmnic0"]
+    portgroups:
+      - name: "Management Network"
+        vlan: 0
+      - name: "VM Network"
+        vlan: 100
+      - name: "Storage Network"
+        vlan: 150
+
+# 고급 옵션
+esxi_advanced_options:
+  - key: "UserVars.SuppressShellWarning"
+    value: "1"
+    type: "int"
+  - key: "UserVars.ESXiShellTimeOut"
+    value: "0"
+    type: "int"
+  - key: "Mem.ShareForceSalting"
+    value: "0"
+    type: "int"
+
+# 방화벽 규칙
+esxi_firewall_rules:
+  - ruleset: "sshServer"
+    enabled: true
+  - ruleset: "httpClient"
+    enabled: true
+
+# 커스텀 명령어
+esxi_custom_commands:
+  - 'esxcli system hostname set --fqdn={{ esxi_hostname }}'
+  - 'esxcli network ip interface ipv4 set --interface-name=vmk0 --ipv4={{ esxi_static_ip }} --netmask={{ esxi_netmask }} --type=static'

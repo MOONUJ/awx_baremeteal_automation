@@ -1,0 +1,86 @@
+---
+# 부트 구성 파일 수정 태스크
+
+- name: isolinux.cfg 파일 확인
+  ansible.builtin.stat:
+    path: "{{ extract_dir }}/isolinux/isolinux.cfg"
+  register: isolinux_cfg_stat
+
+- name: isolinux.cfg 백업
+  ansible.builtin.copy:
+    src: "{{ extract_dir }}/isolinux/isolinux.cfg"
+    dest: "{{ extract_dir }}/isolinux/isolinux.cfg.bak"
+    remote_src: yes
+  when: isolinux_cfg_stat.stat.exists
+
+- name: isolinux.cfg 수정 (킥스타트 추가)
+  ansible.builtin.replace:
+    path: "{{ extract_dir }}/isolinux/isolinux.cfg"
+    regexp: '(kernel\.gz.*)'
+    replace: '\1 ks=cdrom:/{{ kickstart_filename }}'
+  when: isolinux_cfg_stat.stat.exists
+
+- name: boot.cfg 파일 확인
+  ansible.builtin.stat:
+    path: "{{ extract_dir }}/boot.cfg"
+  register: boot_cfg_stat
+
+- name: boot.cfg 백업
+  ansible.builtin.copy:
+    src: "{{ extract_dir }}/boot.cfg"
+    dest: "{{ extract_dir }}/boot.cfg.bak"
+    remote_src: yes
+  when: boot_cfg_stat.stat.exists
+
+- name: boot.cfg 수정 (킥스타트 추가)
+  ansible.builtin.lineinfile:
+    path: "{{ extract_dir }}/boot.cfg"
+    regexp: '^kernelopt='
+    line: 'kernelopt=ks=cdrom:/{{ kickstart_filename }}'
+    backup: no
+  when: boot_cfg_stat.stat.exists
+
+- name: EFI 부트 구성 확인
+  ansible.builtin.stat:
+    path: "{{ extract_dir }}/efi/boot/boot.cfg"
+  register: efi_boot_cfg_stat
+
+- name: EFI boot.cfg 백업
+  ansible.builtin.copy:
+    src: "{{ extract_dir }}/efi/boot/boot.cfg"
+    dest: "{{ extract_dir }}/efi/boot/boot.cfg.bak"
+    remote_src: yes
+  when: efi_boot_cfg_stat.stat.exists
+
+- name: EFI boot.cfg 수정 (킥스타트 추가)
+  ansible.builtin.lineinfile:
+    path: "{{ extract_dir }}/efi/boot/boot.cfg"
+    regexp: '^kernelopt='
+    line: 'kernelopt=ks=cdrom:/{{ kickstart_filename }}'
+    backup: no
+  when: efi_boot_cfg_stat.stat.exists
+
+- name: 부트 타임아웃 설정 (isolinux)
+  ansible.builtin.lineinfile:
+    path: "{{ extract_dir }}/isolinux/isolinux.cfg"
+    regexp: '^timeout'
+    line: 'timeout 30'
+    backup: no
+  when: isolinux_cfg_stat.stat.exists
+
+- name: 기본 부트 옵션 설정 (isolinux)
+  ansible.builtin.lineinfile:
+    path: "{{ extract_dir }}/isolinux/isolinux.cfg"
+    regexp: '^default'
+    line: 'default install'
+    backup: no
+  when: isolinux_cfg_stat.stat.exists
+
+- name: 부트 구성 수정 완료 로그
+  ansible.builtin.debug:
+    msg:
+      - "부트 구성 파일 수정 완료"
+      - "킥스타트 파일: {{ kickstart_filename }}"
+      - "isolinux.cfg: {{ 'Modified' if isolinux_cfg_stat.stat.exists else 'Not found' }}"
+      - "boot.cfg: {{ 'Modified' if boot_cfg_stat.stat.exists else 'Not found' }}"
+      - "EFI boot.cfg: {{ 'Modified' if efi_boot_cfg_stat.stat.exists else 'Not found' }}"

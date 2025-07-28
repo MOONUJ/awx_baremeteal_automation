@@ -1,0 +1,54 @@
+---
+- name: 현재 시스템 정보 수집
+  setup:
+
+- name: BIOS 정보 수집
+  command: dmidecode -s bios-version
+  register: current_bios_version
+  changed_when: false
+
+- name: 시스템 시리얼 번호 수집
+  command: dmidecode -s system-serial-number
+  register: system_serial
+  changed_when: false
+
+- name: BMC/iDRAC 버전 확인 (Dell)
+  uri:
+    url: "https://{{ ansible_default_ipv4.address }}/redfish/v1/Managers/iDRAC.Embedded.1"
+    method: GET
+    user: "{{ ipmi_user | default('root') }}"
+    password: "{{ ipmi_password }}"
+    validate_certs: no
+    force_basic_auth: yes
+  register: idrac_info
+  ignore_errors: yes
+  when: detected_vendor == "dell"
+
+- name: iLO 버전 확인 (HP)  
+  uri:
+    url: "https://{{ ansible_default_ipv4.address }}/redfish/v1/Managers/1"
+    method: GET
+    user: "{{ ipmi_user | default('Administrator') }}"
+    password: "{{ ipmi_password }}"
+    validate_certs: no
+  register: ilo_info
+  ignore_errors: yes
+  when: detected_vendor == "hp"
+
+- name: NIC 드라이버 버전 확인
+  command: ethtool -i {{ ansible_default_ipv4.interface }}
+  register: nic_driver_info
+  changed_when: false
+  ignore_errors: yes
+
+- name: 펌웨어 정보 종합
+  set_fact:
+    current_firmware_info: |
+      BIOS 버전: {{ current_bios_version.stdout }}
+      시스템 시리얼: {{ system_serial.stdout }}
+      {% if detected_vendor == "dell" and idrac_info is succeeded %}
+      iDRAC 버전: {{ idrac_info.json.FirmwareVersion | default('N/A') }}
+      {% elif detected_vendor == "hp" and ilo_info is succeeded %}
+      iLO 버전: {{ ilo_info.json.FirmwareVersion | default('N/A') }}
+      {% endif %}
+      네트워크 드라이버: {{ nic_driver_info.stdout_lines[1] | default('N/A') }}

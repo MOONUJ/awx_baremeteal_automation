@@ -1,0 +1,108 @@
+#!/bin/bash
+# ISO 백업 스크립트
+# {{ ansible_managed }}
+
+CUSTOM_PATH="{{ iso_custom_path }}"
+BACKUP_PATH="{{ iso_backup_path }}"
+RETENTION_DAYS="{{ repo_backup_retention_days }}"
+LOG_FILE="/var/log/iso_backup.log"
+
+# 로그 함수
+log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+}
+
+log_message "ISO 백업 작업 시작"
+
+# 백업 디렉토리 확인 및 생성
+if [ ! -d "$BACKUP_PATH" ]; then
+    mkdir -p "$BACKUP_PATH"
+    log_message "백업 디렉토리 생성: $BACKUP_PATH"
+fi
+
+# 백업 작업
+backup_count=0
+if [ -d "$CUSTOM_PATH" ] && [ "$(ls -A $CUSTOM_PATH)" ]; then
+    # 현재 날짜로 백업 서브디렉토리 생성
+    backup_date=$(date '+%Y%m%d_%H%M%S')
+    backup_subdir="$BACKUP_PATH/$backup_date"
+    mkdir -p "$backup_subdir"
+    
+    # 커스텀 ISO 파일들을 백업
+    for file in "$CUSTOM_PATH"/*.iso; do
+        if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            
+            # ISO 파일과 관련 파일들 (MD5, SHA256, JSON) 백업
+            cp "$file" "$backup_subdir/"
+            backup_count=$((backup_count + 1))
+            
+            # 관련 파일들도 백업
+            for ext in md5 sha256 json; do
+                if [ -f "${file}.${ext}" ]; then
+                    cp "${file}.${ext}" "$backup_subdir/"
+                fi
+            done
+            
+            log_message "백업 완료: $filename"
+        fi
+    done
+    
+    # 백업 완료 후 압축
+    if [ $backup_count -gt 0 ]; then
+        cd "$BACKUP_PATH"
+        tar -czf "${backup_date}.tar.gz" "$backup_date"
+        rm -rf "$backup_date"
+        log_message "백업 압축 완료: ${backup_date}.tar.gz ($backup_count 개 파일)"
+    fi
+else
+    log_message "백업할 파일이 없습니다: $CUSTOM_PATH"
+fi
+
+# 오래된 백업 파일 정리
+if [ "$RETENTION_DAYS" -gt 0 ]; then
+    log_message "오래된 백업 파일 정리 시작 (${RETENTION_DAYS}일 이상)"
+    
+    deleted_count=0
+    find "$BACKUP_PATH" -name "*.tar.gz" -type f -mtime +$RETENTION_DAYS | while read -r old_backup; do
+        if [ -f "$old_backup" ]; then
+            rm -f "$old_backup"
+            deleted_count=$((deleted_count + 1))
+            log_message "삭제됨: $(basename "$old_backup")"
+        fi
+    done
+    
+    if [ $deleted_count -gt 0 ]; then
+        log_message "오래된 백업 $deleted_count 개 파일 삭제 완료"
+    else
+        log_message "삭제할 오래된 백업 파일이 없습니다"
+    fi
+fi
+
+# 백업 통계 생성
+total_backups=$(find "$BACKUP_PATH" -name "*.tar.gz" -type f | wc -l)
+total_size=$(du -sh "$BACKUP_PATH" 2>/dev/null | cut -f1)
+
+# 백업 통계 파일 생성
+cat > "$BACKUP_PATH/backup_stats.txt" << EOF
+ISO 백업 통계
+=============
+마지막 백업: $(date)
+총 백업 파일 수: $total_backups
+백업 디렉토리 크기: $total_size
+보존 기간: $RETENTION_DAYS 일
+마지막 백업에서 처리된 파일 수: $backup_count
+
+백업 파일 목록:
+$(find "$BACKUP_PATH" -name "*.tar.gz" -type f -exec ls -lh {} \; | awk '{print $9, $5, $6, $7, $8}')
+EOF
+
+log_message "백업 작업 완료 - 총 $backup_count 개 파일 백업, $total_backups 개 백업 파일 보관 중"
+
+# 디스크 사용량 경고
+disk_usage=$(df "$BACKUP_PATH" | tail -1 | awk '{print $5}' | sed 's/%//')
+if [ "$disk_usage" -gt 90 ]; then
+    log_message "경고: 백업 디스크 사용량이 높습니다 (${disk_usage}%)"
+fi
+
+exit 0

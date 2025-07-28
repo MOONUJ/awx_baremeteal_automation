@@ -1,0 +1,36 @@
+---
+# HP 서버 특화 변수
+
+# HP Service Pack for ProLiant 설정
+install_spp: true
+spp_version: "2023.03.0"
+
+# iLO 설정
+ilo_enable_virtual_media: true
+ilo_enable_remote_console: true
+ilo_session_timeout: 3600
+
+# HP 드라이버 저장소
+hp_driver_repo: "https://downloads.hpe.com/pub/softlib2/"
+
+# HP 하드웨어 모니터링
+enable_hp_monitoring: true
+install_hp_health: true
+
+# HP 펌웨어 업그레이드 설정
+hp_auto_firmware_update: false
+hp_firmware_schedule: "monthly"
+
+# HP 특화 패키지
+hp_packages:
+  - hponcfg
+  - hp-health
+  - hpsmh
+  - cpqacuxe
+
+# Smart Array 설정
+configure_smart_array: false
+smart_array_raid_level: "1"
+
+# HP Insight Control 설정
+install_insight_control: false

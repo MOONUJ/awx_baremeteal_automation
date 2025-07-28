@@ -1,0 +1,50 @@
+{
+  "iso_info": {
+    "filename": "{{ custom_iso_name }}",
+    "path": "{{ custom_iso_output_path }}/{{ custom_iso_name }}",
+    "size_bytes": {{ custom_iso_stat.stat.size }},
+    "size_mb": {{ (custom_iso_stat.stat.size / 1024 / 1024) | round(2) }},
+    "created": "{{ ansible_date_time.iso8601 }}",
+    "label": "{{ iso_label }}",
+    "volume_id": "{{ iso_volume_id }}"
+  },
+  "source_info": {
+    "base_iso": "{{ base_iso_path }}",
+    "esxi_version": "{{ esxi_version }}",
+    "esxi_build": "{{ esxi_build | default('unknown') }}",
+    "target_server": "{{ inventory_hostname }}"
+  },
+  "kickstart_info": {
+    "filename": "{{ kickstart_filename }}",
+    "template": "{{ kickstart_template }}",
+    "network_config": {
+      "use_dhcp": {{ esxi_use_dhcp | lower }},
+      "device": "{{ esxi_network_device }}",
+{% if not esxi_use_dhcp %}
+      "ip": "{{ esxi_static_ip | default('') }}",
+      "netmask": "{{ esxi_netmask }}",
+      "gateway": "{{ esxi_gateway }}",
+      "dns_servers": {{ esxi_dns_servers | to_json }},
+{% endif %}
+      "hostname": "{{ inventory_hostname }}"
+    },
+    "system_config": {
+      "timezone": "{{ esxi_timezone }}",
+      "ntp_servers": {{ esxi_ntp_servers | to_json }},
+      "datastore_name": "{{ esxi_datastore_name }}",
+      "ssh_enabled": {{ esxi_enable_ssh | lower }},
+      "shell_enabled": {{ esxi_enable_shell | lower }},
+      "snmp_enabled": {{ esxi_enable_snmp | lower }}
+    }
+  },
+  "checksums": {
+    "md5": "{{ iso_md5 }}",
+    "sha256": "{{ iso_sha256 }}"
+  },
+  "deployment_info": {
+    "repo_server": "{{ repo_server | default('') }}",
+    "repo_path": "{{ repo_iso_path | default('') }}",
+    "vcenter_host": "{{ vcenter_hostname | default('') }}",
+    "vm_name": "{{ vm_name | default('') }}"
+  }
+}

@@ -1,0 +1,168 @@
+---
+# ISO 리포지토리 서버 설정 플레이북
+
+- name: ISO 리포지토리 서버 설정
+  hosts: repo_servers
+  become: yes
+  gather_facts: yes
+
+  vars:
+    required_packages:
+      - nginx
+      - nfs-utils
+      - vsftpd
+      - firewalld
+      - rsync
+      - genisoimage
+      - isomd5sum
+
+  tasks:
+    - name: 필요한 패키지 설치
+      ansible.builtin.package:
+        name: "{{ required_packages }}"
+        state: present
+
+    - name: ISO 저장 디렉토리 생성
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+      loop:
+        - "{{ iso_base_path }}"
+        - "{{ iso_custom_path }}"
+        - "{{ iso_backup_path }}"
+        - "{{ repo_web_root }}"
+
+    - name: 웹 서버 문서 루트 심링크 생성
+      ansible.builtin.file:
+        src: "{{ iso_custom_path }}"
+        dest: "{{ repo_web_root }}/custom"
+        state: link
+
+    - name: 베이스 ISO 심링크 생성
+      ansible.builtin.file:
+        src: "{{ iso_base_path }}"
+        dest: "{{ repo_web_root }}/base"
+        state: link
+
+    - name: Nginx 설정 파일 생성
+      ansible.builtin.template:
+        src: nginx_repo.conf.j2
+        dest: /etc/nginx/conf.d/iso_repo.conf
+        backup: yes
+      notify: restart nginx
+
+    - name: NFS exports 설정
+      ansible.builtin.lineinfile:
+        path: /etc/exports
+        line: "{{ repo_nfs_export_path }} {{ item }}(ro,sync,no_subtree_check)"
+        create: yes
+      loop: "{{ repo_nfs_allowed_networks }}"
+      notify: restart nfs
+      when: repo_nfs_export_path is defined
+
+    - name: FTP 사용자 계정 생성
+      ansible.builtin.user:
+        name: "{{ repo_ftp_user }}"
+        password: "{{ repo_ftp_password | password_hash('sha512') }}"
+        home: "{{ iso_custom_path }}"
+        shell: /bin/bash
+        create_home: no
+      when: repo_ftp_user is defined
+
+    - name: vsftpd 설정
+      ansible.builtin.template:
+        src: vsftpd.conf.j2
+        dest: /etc/vsftpd/vsftpd.conf
+        backup: yes
+      notify: restart vsftpd
+
+    - name: 방화벽 규칙 설정
+      ansible.posix.firewalld:
+        service: "{{ item }}"
+        permanent: yes
+        state: enabled
+        immediate: yes
+      loop:
+        - http
+        - https
+        - nfs
+        - ftp
+      when: repo_firewall_enabled | default(true)
+
+    - name: 서비스 활성화 및 시작
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - nginx
+        - nfs-server
+        - vsftpd
+
+    - name: ISO 인덱스 생성 스크립트 배포
+      ansible.builtin.template:
+        src: create_iso_index.sh.j2
+        dest: /usr/local/bin/create_iso_index.sh
+        mode: '0755'
+
+    - name: ISO 인덱스 생성 크론 작업 설정
+      ansible.builtin.cron:
+        name: "ISO 인덱스 업데이트"
+        minute: "*/5"
+        job: "/usr/local/bin/create_iso_index.sh"
+        user: root
+
+    - name: ISO 백업 스크립트 배포
+      ansible.builtin.template:
+        src: backup_isos.sh.j2
+        dest: /usr/local/bin/backup_isos.sh
+        mode: '0755'
+      when: repo_backup_enabled | default(false)
+
+    - name: ISO 백업 크론 작업 설정
+      ansible.builtin.cron:
+        name: "ISO 백업"
+        minute: "0"
+        hour: "2"
+        job: "/usr/local/bin/backup_isos.sh"
+        user: root
+      when: repo_backup_enabled | default(false)
+
+    - name: 리포지토리 서버 상태 확인
+      ansible.builtin.uri:
+        url: "http://{{ ansible_default_ipv4.address }}:{{ repo_web_port }}/custom/"
+        method: GET
+        status_code: 200
+      register: repo_status
+      ignore_errors: yes
+
+    - name: 설정 완료 메시지
+      ansible.builtin.debug:
+        msg:
+          - "=== ISO 리포지토리 서버 설정 완료 ==="
+          - "웹 접근: http://{{ ansible_default_ipv4.address }}:{{ repo_web_port }}"
+          - "베이스 ISO 경로: {{ iso_base_path }}"
+          - "커스텀 ISO 경로: {{ iso_custom_path }}"
+          - "백업 경로: {{ iso_backup_path }}"
+          - "NFS 내보내기: {{ repo_nfs_export_path if repo_nfs_export_path is defined else 'Disabled' }}"
+          - "FTP 접근: {{ 'Enabled' if repo_ftp_user is defined else 'Disabled' }}"
+          - "웹 서버 상태: {{ 'OK' if repo_status.status == 200 else 'ERROR' }}"
+
+  handlers:
+    - name: restart nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: restarted
+
+    - name: restart nfs
+      ansible.builtin.systemd:
+        name: nfs-server
+        state: restarted
+
+    - name: restart vsftpd
+      ansible.builtin.systemd:
+        name: vsftpd
+        state: restarted

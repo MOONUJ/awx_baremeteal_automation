@@ -1,0 +1,9 @@
+---
+# 펌웨어 업그레이드 전용 플레이북
+- name: 펌웨어 업그레이드
+  hosts: baremetal_servers
+  become: yes
+  gather_facts: yes
+  
+  roles:
+    - firmware_upgrade

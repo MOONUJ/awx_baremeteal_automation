@@ -1,0 +1,138 @@
+---
+- name: GPU 드라이버 설치 시작
+  debug:
+    msg: "GPU 드라이버를 설치합니다"
+
+- name: GPU 디바이스 확인
+  shell: lspci | grep -i -E "(vga|3d|display|nvidia|amd)"
+  register: gpu_devices
+  changed_when: false
+
+- name: GPU 디바이스 정보 출력
+  debug:
+    msg: "감지된 GPU: {{ gpu_devices.stdout_lines }}"
+
+# NVIDIA GPU 드라이버 설치
+- name: NVIDIA GPU 드라이버 설치
+  block:
+    - name: 기존 nouveau 드라이버 비활성화
+      kernel_blacklist:
+        name: nouveau
+        state: present
+
+    - name: NVIDIA 저장소 추가 (Ubuntu)
+      apt_repository:
+        repo: "ppa:graphics-drivers/ppa"
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: NVIDIA 드라이버 설치 (Ubuntu/Debian)
+      apt:
+        name: "nvidia-driver-{{ gpu_drivers[0].version.split('.')[0] }}"
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: NVIDIA 저장소 추가 (RHEL/CentOS)
+      yum_repository:
+        name: nvidia-driver
+        description: NVIDIA Driver Repository
+        baseurl: "https://developer.download.nvidia.com/compute/cuda/repos/rhel{{ ansible_distribution_major_version }}/x86_64/"
+        gpgkey: "https://developer.download.nvidia.com/compute/cuda/repos/rhel{{ ansible_distribution_major_version }}/x86_64/7fa2af80.pub"
+        gpgcheck: yes
+      when: ansible_os_family == "RedHat"
+
+    - name: NVIDIA 드라이버 설치 (RHEL/CentOS)
+      yum:
+        name: "nvidia-driver-{{ gpu_drivers[0].version }}"
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: NVIDIA CUDA 툴킷 설치 (선택사항)
+      package:
+        name: nvidia-cuda-toolkit
+        state: present
+      when: install_cuda_toolkit | default(false)
+
+    - name: nvidia-smi 테스트
+      command: nvidia-smi
+      register: nvidia_smi_test
+      ignore_errors: yes
+
+  when: "'NVIDIA' in gpu_devices.stdout"
+
+# AMD GPU 드라이버 설치
+- name: AMD GPU 드라이버 설치
+  block:
+    - name: AMD GPU 드라이버 다운로드
+      get_url:
+        url: "{{ driver_repo_url }}/gpu/amd/amdgpu-pro-{{ gpu_drivers[1].version }}.tar.xz"
+        dest: "{{ driver_local_path }}/amdgpu-pro.tar.xz"
+
+    - name: AMD GPU 드라이버 압축 해제
+      unarchive:
+        src: "{{ driver_local_path }}/amdgpu-pro.tar.xz"
+        dest: "{{ driver_local_path }}"
+        remote_src: yes
+
+    - name: AMD GPU 드라이버 설치
+      command: "{{ driver_local_path }}/amdgpu-pro-{{ gpu_drivers[1].version }}/amdgpu-pro-install -y"
+      register: amdgpu_install
+
+    - name: AMD GPU 사용자 그룹 추가
+      user:
+        name: "{{ ansible_user }}"
+        groups: video,render
+        append: yes
+
+  when: "'AMD' in gpu_devices.stdout"
+
+# Intel 내장 그래픽 드라이버 확인
+- name: Intel 그래픽 드라이버 확인
+  block:
+    - name: Intel 그래픽 드라이버 패키지 설치
+      package:
+        name:
+          - intel-media-va-driver
+          - i965-va-driver
+        state: present
+
+    - name: Intel GPU 도구 설치
+      package:
+        name: intel-gpu-tools
+        state: present
+
+  when: "'Intel' in gpu_devices.stdout"
+
+- name: GPU 모듈 로드 확인
+  shell: lsmod | grep -E "(nvidia|amdgpu|i915)"
+  register: gpu_modules
+  changed_when: false
+  ignore_errors: yes
+
+- name: X11 설정 업데이트 (GUI 환경)
+  block:
+    - name: X11 설정 백업
+      copy:
+        src: /etc/X11/xorg.conf
+        dest: /etc/X11/xorg.conf.backup
+        remote_src: yes
+      ignore_errors: yes
+
+    - name: 새 X11 설정 생성
+      command: nvidia-xconfig
+      when: "'NVIDIA' in gpu_devices.stdout and nvidia_smi_test is succeeded"
+
+  when: gui_environment | default(false)
+
+- name: GPU 드라이버 설치 결과
+  debug:
+    msg: |
+      로드된 GPU 모듈: {{ gpu_modules.stdout_lines }}
+      {% if nvidia_smi_test is defined and nvidia_smi_test is succeeded %}
+      NVIDIA 드라이버 상태: 정상
+      {% endif %}
+
+- name: GPU 드라이버 설치 완료
+  debug:
+    msg: "GPU 드라이버 설치가 완료되었습니다"

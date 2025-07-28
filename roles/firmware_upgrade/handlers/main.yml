@@ -1,0 +1,31 @@
+---
+# 펌웨어 업그레이드 핸들러
+
+- name: 시스템 재부팅
+  reboot:
+    reboot_timeout: "{{ upgrade_timeout }}"
+    test_command: whoami
+
+- name: BMC/iDRAC 재시작 대기
+  wait_for:
+    host: "{{ ansible_default_ipv4.address }}"
+    port: 443
+    timeout: 600
+    delay: 120
+
+- name: 펌웨어 업그레이드 완료 알림
+  uri:
+    url: "{{ notification_webhook }}"
+    method: POST
+    body_format: json
+    body:
+      text: "{{ inventory_hostname }}에서 펌웨어 업그레이드가 완료되었습니다."
+  when: notification_enabled and notification_webhook is defined
+  delegate_to: localhost
+
+- name: 펌웨어 로그 백업
+  fetch:
+    src: "{{ firmware_log_path }}"
+    dest: "/tmp/firmware-logs/{{ inventory_hostname }}-{{ ansible_date_time.date }}.log"
+    flat: yes
+  when: log_firmware_changes

@@ -1,0 +1,72 @@
+---
+- name: OS 설치 시작 로그
+  debug:
+    msg: "{{ os_type }} {{ os_version }} 설치를 시작합니다"
+
+- name: 기존 OS 존재 여부 확인
+  stat:
+    path: /etc/os-release
+  register: existing_os
+  ignore_errors: yes
+
+- name: 기존 OS 정보 수집
+  slurp:
+    src: /etc/os-release
+  register: os_info
+  when: existing_os.stat.exists
+  ignore_errors: yes
+
+- name: 기존 OS 정보 출력
+  debug:
+    msg: "기존 OS 발견: {{ (os_info.content | b64decode).split('\n')[0] }}"
+  when: existing_os.stat.exists
+
+- name: 하드웨어 정보 수집
+  setup:
+    gather_subset:
+      - hardware
+      - network
+
+- name: 디스크 상태 확인
+  command: lsblk
+  register: disk_info
+  changed_when: false
+
+- name: 타겟 디스크 존재 확인
+  stat:
+    path: "{{ target_disk }}"
+  register: target_disk_stat
+
+- name: 타겟 디스크 확인 실패시 종료
+  fail:
+    msg: "타겟 디스크 {{ target_disk }}를 찾을 수 없습니다"
+  when: not target_disk_stat.stat.exists
+
+- name: PXE 서버 연결 확인
+  wait_for:
+    host: "{{ pxe_server }}"
+    port: 69  # TFTP
+    timeout: 10
+  when: pxe_server is defined
+
+# Ubuntu 설치 프로세스
+- name: Ubuntu 설치 수행
+  include_tasks: install_ubuntu.yml
+  when: os_type == "ubuntu"
+
+# CentOS/RHEL 설치 프로세스  
+- name: CentOS/RHEL 설치 수행
+  include_tasks: install_centos.yml
+  when: os_type in ["centos", "rhel"]
+
+- name: 설치 완료 대기
+  wait_for_connection:
+    timeout: 1800  # 30분 대기
+  when: reboot_after_install
+
+- name: 설치 후 OS 정보 확인
+  setup:
+    
+- name: 설치 완료 로그
+  debug:
+    msg: "{{ os_type }} {{ os_version }} 설치가 완료되었습니다"

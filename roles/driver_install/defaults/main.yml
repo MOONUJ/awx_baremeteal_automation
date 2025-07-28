@@ -1,0 +1,53 @@
+---
+# 드라이버 설치 기본 변수
+
+# 드라이버 저장소 설정
+driver_repo_url: "http://{{ driver_server | default('192.168.1.100') }}/drivers"
+driver_local_path: "/tmp/drivers"
+
+# 네트워크 드라이버
+network_drivers:
+  - name: "Intel i40e"
+    version: "2.20.12" 
+    package: "i40e"
+  - name: "Broadcom bnx2x"
+    version: "1.714.37"
+    package: "bnx2x"
+  - name: "Mellanox mlx5"
+    version: "5.8-1.0.1.1"
+    package: "mlnx-ofed"
+
+# 스토리지 드라이버
+storage_drivers:
+  - name: "MegaRAID SAS"
+    version: "07.719.03.00"
+    package: "megaraid_sas"
+  - name: "LSI MPT3SAS"
+    version: "38.100.00.00"
+    package: "mpt3sas"
+
+# GPU 드라이버
+gpu_drivers:
+  - name: "NVIDIA"
+    version: "525.147.05"
+    package: "nvidia-driver"
+  - name: "AMD"
+    version: "22.40.5"
+    package: "amdgpu"
+
+# 설치 옵션
+install_network_drivers: true
+install_storage_drivers: true
+install_gpu_drivers: false
+install_vendor_specific: true
+
+# 커널 모듈 설정
+update_initramfs: true
+rebuild_kernel_modules: true
+
+# 검증 설정
+verify_driver_load: true
+test_driver_functionality: true
+
+# 재부팅 설정
+reboot_after_driver_install: true

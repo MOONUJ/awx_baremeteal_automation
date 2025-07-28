@@ -1,0 +1,79 @@
+---
+- name: 펌웨어 업그레이드 검증 시작
+  debug:
+    msg: "펌웨어 업그레이드 결과를 검증합니다"
+
+- name: 업그레이드 후 펌웨어 정보 수집
+  include_tasks: collect_firmware_info.yml
+
+- name: 업그레이드 전후 비교
+  set_fact:
+    firmware_comparison: |
+      === 펌웨어 업그레이드 전후 비교 ===
+      {% if current_firmware_info is defined %}
+      업그레이드 후: {{ current_firmware_info }}
+      {% endif %}
+
+- name: 시스템 안정성 확인
+  block:
+    - name: 시스템 부팅 시간 확인
+      command: systemd-analyze
+      register: boot_time
+      changed_when: false
+
+    - name: 메모리 오류 확인
+      command: dmesg | grep -i "memory error\|ecc"
+      register: memory_errors
+      ignore_errors: yes
+      changed_when: false
+
+    - name: 하드웨어 오류 확인
+      command: dmesg | grep -i "hardware error\|machine check"
+      register: hardware_errors
+      ignore_errors: yes
+      changed_when: false
+
+- name: BMC/iDRAC 연결 테스트
+  uri:
+    url: "https://{{ ansible_default_ipv4.address }}/redfish/v1/"
+    method: GET
+    user: "{{ ipmi_user }}"
+    password: "{{ ipmi_password }}"
+    validate_certs: no
+    timeout: 30
+  register: bmc_connectivity
+  ignore_errors: yes
+
+- name: 네트워크 기능 확인
+  command: ping -c 3 {{ gateway }}
+  register: network_test
+  ignore_errors: yes
+
+- name: 검증 결과 요약
+  debug:
+    msg: |
+      === 펌웨어 업그레이드 검증 결과 ===
+      {{ firmware_comparison }}
+      시스템 부팅 시간: {{ boot_time.stdout if boot_time is succeeded else 'N/A' }}
+      메모리 오류: {{ 'None' if memory_errors.stdout == '' else memory_errors.stdout }}
+      하드웨어 오류: {{ 'None' if hardware_errors.stdout == '' else hardware_errors.stdout }}
+      BMC 연결: {{ 'OK' if bmc_connectivity is succeeded else 'Failed' }}
+      네트워크 연결: {{ 'OK' if network_test.rc == 0 else 'Failed' }}
+
+- name: 검증 실패시 롤백 수행 (옵션)
+  block:
+    - name: 롤백 경고 메시지
+      debug:
+        msg: "펌웨어 업그레이드 검증에 실패했습니다. 롤백을 고려하세요."
+
+    - name: 자동 롤백 실행 (주의!)
+      debug:
+        msg: "자동 롤백 기능은 구현되지 않았습니다. 수동으로 롤백하세요."
+
+  when: 
+    - rollback_on_failure
+    - bmc_connectivity is failed or network_test.rc != 0
+
+- name: 펌웨어 검증 완료
+  debug:
+    msg: "펌웨어 업그레이드 검증이 완료되었습니다"

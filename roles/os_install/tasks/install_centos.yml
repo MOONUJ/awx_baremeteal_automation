@@ -1,0 +1,72 @@
+---
+- name: CentOS/RHEL 설치 준비
+  debug:
+    msg: "{{ os_type | upper }} {{ os_version }} 설치를 준비합니다"
+
+- name: Kickstart 파일 생성
+  template:
+    src: "kickstart-{{ os_type }}.cfg.j2"
+    dest: "/tmp/kickstart.cfg"
+  delegate_to: localhost
+
+- name: 설치 미디어 확인
+  stat:
+    path: "{{ os_image_path }}"
+  register: iso_file
+  delegate_to: "{{ pxe_server }}"
+  
+- name: ISO 파일 존재 확인
+  fail:
+    msg: "OS 이미지 파일을 찾을 수 없습니다: {{ os_image_path }}"
+  when: not iso_file.stat.exists
+
+- name: IPMI를 통한 설치 실행
+  block:
+    - name: Virtual Media ISO 마운트 (Dell iDRAC 예제)
+      uri:
+        url: "https://{{ ipmi_host }}/redfish/v1/Managers/iDRAC.Embedded.1/VirtualMedia/CD/Actions/VirtualMedia.InsertMedia"
+        method: POST
+        user: "{{ ipmi_user }}"
+        password: "{{ ipmi_password }}"
+        force_basic_auth: yes
+        validate_certs: no
+        body_format: json
+        body:
+          Image: "http://{{ nfs_server }}/images/{{ os_type }}-{{ os_version }}-{{ os_arch }}.iso"
+          Inserted: true
+      when: ipmi_vendor == "dell"
+
+    - name: CD/DVD 부팅으로 설정
+      ipmi_boot:
+        name: "{{ inventory_hostname }}"
+        user: "{{ ipmi_user }}"
+        password: "{{ ipmi_password }}"
+        bootdev: cdrom
+        
+    - name: 시스템 재부팅
+      ipmi_power:
+        name: "{{ inventory_hostname }}"
+        user: "{{ ipmi_user }}"
+        password: "{{ ipmi_password }}"
+        state: boot
+        
+  when: ipmi_host is defined
+
+- name: 설치 진행 모니터링
+  wait_for:
+    timeout: 3600
+    sleep: 60
+  delegate_to: localhost
+
+- name: 설치 완료 후 연결 대기
+  wait_for_connection:
+    timeout: 600
+    
+- name: CentOS/RHEL 버전 확인
+  command: cat /etc/redhat-release
+  register: rhel_version
+  changed_when: false
+  
+- name: 설치 결과 출력
+  debug:
+    msg: "{{ os_type | upper }} 설치 완료: {{ rhel_version.stdout }}"

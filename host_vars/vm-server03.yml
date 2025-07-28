@@ -1,0 +1,83 @@
+---
+# vm-server03 호스트별 변수
+
+# vSphere VM 정보
+vm_name: "esxi-test-03"
+datacenter: "Datacenter"
+cluster: "Cluster"
+vm_folder: "/"
+
+# ESXi 네트워크 설정
+esxi_hostname: "esxi03.lab.local"
+esxi_static_ip: "192.168.1.103"
+esxi_netmask: "255.255.255.0"
+esxi_gateway: "192.168.1.1"
+esxi_dns_servers:
+  - "192.168.1.10"
+  - "8.8.8.8"
+
+# ESXi 시스템 설정
+esxi_datastore_name: "datastore3-prod"
+esxi_root_password: "{{ vault_esxi_root_password | default('ESXi03Pass!') }}"
+
+# ESXi 서비스 설정 (운영 환경)
+esxi_enable_ssh: false  # 운영 환경에서는 비활성화
+esxi_enable_shell: false
+esxi_enable_snmp: true
+esxi_snmp_community: "readonly"
+
+# 로깅 설정
+esxi_syslog_server: "192.168.1.10"
+esxi_syslog_port: 514
+
+# vSwitch 설정
+esxi_vswitch_config:
+  - name: "vSwitch0"
+    uplinks: ["vmnic0"]
+    portgroups:
+      - name: "Management Network"
+        vlan: 0
+      - name: "vMotion Network"
+        vlan: 200
+      - name: "Storage Network"
+        vlan: 250
+
+# 고급 옵션 (운영 환경 최적화)
+esxi_advanced_options:
+  - key: "UserVars.SuppressShellWarning"
+    value: "1"
+    type: "int"
+  - key: "Security.PasswordQualityControl"
+    value: "similar=deny retry=3 min=disabled,disabled,disabled,disabled,15"
+    type: "string"
+  - key: "UserVars.ESXiShellTimeOut"
+    value: "600"
+    type: "int"
+
+# 방화벽 규칙 (운영 환경용)
+esxi_firewall_rules:
+  - ruleset: "sshServer"
+    enabled: false
+  - ruleset: "httpClient"
+    enabled: true
+  - ruleset: "snmp"
+    enabled: true
+
+# 로컬 사용자 (운영 관리용)
+esxi_local_users:
+  - username: "mgmt-admin"
+    password: "MgmtAdmin123!"
+    description: "Management Administrator"
+    roles: ["Admin"]
+  - username: "monitoring"
+    password: "Monitor123!"
+    description: "Monitoring User"
+    roles: ["ReadOnly"]
+
+# 커스텀 명령어
+esxi_custom_commands:
+  - 'esxcli system hostname set --fqdn={{ esxi_hostname }}'
+  - 'esxcli network ip interface ipv4 set --interface-name=vmk0 --ipv4={{ esxi_static_ip }} --netmask={{ esxi_netmask }} --type=static'
+  - 'esxcli system syslog config set --loghost={{ esxi_syslog_server }}:{{ esxi_syslog_port }}'
+  - 'esxcli system snmp set --communities={{ esxi_snmp_community }}'
+  - 'esxcli system snmp set --enable=true'

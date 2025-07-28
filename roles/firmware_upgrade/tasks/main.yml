@@ -1,0 +1,71 @@
+---
+- name: 펌웨어 업그레이드 시작
+  debug:
+    msg: "{{ hardware_vendor | upper }} 서버 펌웨어 업그레이드를 시작합니다"
+
+- name: 하드웨어 정보 수집
+  setup:
+    gather_subset:
+      - hardware
+
+- name: DMI 정보 수집
+  command: dmidecode -s system-manufacturer
+  register: system_manufacturer
+  changed_when: false
+  become: yes
+
+- name: 하드웨어 벤더 자동 감지
+  set_fact:
+    detected_vendor: "{{ 'dell' if 'Dell' in system_manufacturer.stdout else 
+                        'hp' if 'HP' in system_manufacturer.stdout or 'Hewlett' in system_manufacturer.stdout else
+                        'supermicro' if 'Supermicro' in system_manufacturer.stdout else
+                        'lenovo' if 'Lenovo' in system_manufacturer.stdout else 'unknown' }}"
+
+- name: 감지된 벤더 정보 출력
+  debug:
+    msg: "감지된 하드웨어 벤더: {{ detected_vendor }}"
+
+- name: 펌웨어 다운로드 디렉토리 생성
+  file:
+    path: "{{ firmware_local_path }}"
+    state: directory
+    mode: '0755'
+
+- name: 현재 펌웨어 버전 백업
+  block:
+    - name: 펌웨어 정보 수집
+      include_tasks: collect_firmware_info.yml
+      
+    - name: 현재 펌웨어 정보 저장
+      copy:
+        content: |
+          # 펌웨어 업그레이드 전 버전 정보
+          날짜: {{ ansible_date_time.iso8601 }}
+          서버: {{ inventory_hostname }}
+          {{ current_firmware_info }}
+        dest: "{{ firmware_local_path }}/firmware-backup-{{ ansible_hostname }}-{{ ansible_date_time.date }}.txt"
+  when: backup_current_firmware
+
+# 벤더별 펌웨어 업그레이드 수행
+- name: Dell 서버 펌웨어 업그레이드
+  include_tasks: upgrade_dell.yml
+  when: detected_vendor == "dell" or hardware_vendor == "dell"
+
+- name: HP 서버 펌웨어 업그레이드  
+  include_tasks: upgrade_hp.yml
+  when: detected_vendor == "hp" or hardware_vendor == "hp"
+
+- name: Supermicro 서버 펌웨어 업그레이드
+  include_tasks: upgrade_supermicro.yml
+  when: detected_vendor == "supermicro" or hardware_vendor == "supermicro"
+
+- name: 업그레이드 후 검증
+  include_tasks: verify_upgrade.yml
+  when: verify_after_upgrade
+
+- name: 펌웨어 업그레이드 완료 로그
+  lineinfile:
+    path: "{{ firmware_log_path }}"
+    line: "{{ ansible_date_time.iso8601 }} - {{ inventory_hostname }} 펌웨어 업그레이드 완료"
+    create: yes
+  when: log_firmware_changes

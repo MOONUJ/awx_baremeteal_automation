@@ -1,0 +1,9 @@
+---
+# 드라이버 설치 전용 플레이북
+- name: 드라이버 설치
+  hosts: baremetal_servers
+  become: yes
+  gather_facts: yes
+  
+  roles:
+    - driver_install

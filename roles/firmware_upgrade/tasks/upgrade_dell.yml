@@ -1,0 +1,125 @@
+---
+- name: Dell 펌웨어 업그레이드 시작
+  debug:
+    msg: "Dell 서버 펌웨어 업그레이드를 시작합니다"
+
+- name: Dell Repository Manager 설치 확인
+  command: which drmupdate
+  register: drm_installed
+  ignore_errors: yes
+  changed_when: false
+
+- name: Dell Repository Manager 설치
+  block:
+    - name: Dell GPG 키 추가
+      apt_key:
+        url: https://linux.dell.com/repo/pgp_pubkeys/0x1285491434D8786F.asc
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Dell 저장소 추가 (Ubuntu/Debian)
+      apt_repository:
+        repo: "deb http://linux.dell.com/repo/community/openmanage/{{ ansible_distribution_major_version | int }}00/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} main"
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Dell Repository Manager 설치 (Ubuntu/Debian)
+      apt:
+        name: 
+          - srvadmin-all
+          - dsu
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Dell 저장소 추가 (RHEL/CentOS)
+      yum_repository:
+        name: dell-system-update
+        description: Dell System Update
+        baseurl: https://linux.dell.com/repo/hardware/dsu/os_dependent/RHEL{{ ansible_distribution_major_version }}_64
+        gpgkey: https://linux.dell.com/repo/pgp_pubkeys/0x1285491434D8786F.asc
+        gpgcheck: yes
+      when: ansible_os_family == "RedHat"
+
+    - name: Dell System Update 설치 (RHEL/CentOS)
+      yum:
+        name: dell-system-update
+        state: present
+      when: ansible_os_family == "RedHat"
+
+  when: drm_installed.rc != 0
+
+- name: Dell System Update 인벤토리 업데이트
+  command: dsu --inventory
+  register: dsu_inventory
+  changed_when: false
+
+- name: 사용 가능한 업데이트 확인
+  command: dsu --preview
+  register: dsu_preview
+  changed_when: false
+
+- name: 업데이트 목록 출력
+  debug:
+    msg: "사용 가능한 업데이트: {{ dsu_preview.stdout_lines }}"
+
+- name: BIOS 펌웨어 업그레이드
+  block:
+    - name: BIOS 업데이트 실행
+      command: dsu --apply-upgrades --reboot-required
+      register: bios_upgrade_result
+      when: not force_upgrade
+      
+    - name: 강제 BIOS 업데이트 실행
+      command: dsu --apply-upgrades --force-reboot
+      register: bios_upgrade_result
+      when: force_upgrade
+
+    - name: BIOS 업그레이드 결과 확인
+      debug:
+        msg: "BIOS 업그레이드 결과: {{ bios_upgrade_result.stdout }}"
+
+- name: iDRAC 펌웨어 업그레이드
+  block:
+    - name: iDRAC 업데이트 파일 다운로드
+      get_url:
+        url: "{{ firmware_repo_url }}/dell/idrac/{{ dell_idrac_version }}/iDRAC-with-Lifecycle-Controller_Firmware.exe"
+        dest: "{{ firmware_local_path }}/idrac_firmware.exe"
+        mode: '0755'
+
+    - name: iDRAC 업데이트 실행
+      command: "{{ firmware_local_path }}/idrac_firmware.exe -q -f"
+      register: idrac_upgrade_result
+      ignore_errors: yes
+
+    - name: iDRAC 업그레이드 상태 확인
+      uri:
+        url: "https://{{ ansible_default_ipv4.address }}/redfish/v1/TaskService/Tasks"
+        method: GET
+        user: "{{ ipmi_user }}"
+        password: "{{ ipmi_password }}"
+        validate_certs: no
+      register: idrac_tasks
+      until: idrac_tasks.json.Members | length == 0
+      retries: 30
+      delay: 60
+
+- name: 네트워크 어댑터 펌웨어 업그레이드
+  block:
+    - name: NIC 펌웨어 파일 다운로드
+      get_url:
+        url: "{{ firmware_repo_url }}/dell/nic/{{ dell_nic_version }}/Network_Firmware.exe"
+        dest: "{{ firmware_local_path }}/nic_firmware.exe"
+        mode: '0755'
+
+    - name: NIC 펌웨어 업데이트
+      command: "{{ firmware_local_path }}/nic_firmware.exe -q"
+      register: nic_upgrade_result
+
+- name: 시스템 재부팅 (필요시)
+  reboot:
+    reboot_timeout: "{{ upgrade_timeout }}"
+  when: reboot_after_upgrade and (bios_upgrade_result.changed or idrac_upgrade_result.changed)
+
+- name: Dell 펌웨어 업그레이드 완료
+  debug:
+    msg: "Dell 서버 펌웨어 업그레이드가 완료되었습니다"

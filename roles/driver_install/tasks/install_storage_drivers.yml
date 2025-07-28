@@ -1,0 +1,129 @@
+---
+- name: 스토리지 드라이버 설치 시작
+  debug:
+    msg: "스토리지 드라이버를 설치합니다"
+
+- name: 스토리지 컨트롤러 정보 확인
+  shell: lspci | grep -i -E "(raid|storage|scsi)"
+  register: storage_controllers
+  changed_when: false
+
+- name: 현재 스토리지 드라이버 확인
+  shell: lsmod | grep -E "(megaraid|mpt3sas|ahci|nvme)"
+  register: current_storage_drivers
+  changed_when: false
+
+- name: 스토리지 컨트롤러 정보 출력
+  debug:
+    msg: |
+      스토리지 컨트롤러: {{ storage_controllers.stdout_lines }}
+      현재 드라이버: {{ current_storage_drivers.stdout_lines }}
+
+# MegaRAID SAS 드라이버 설치
+- name: MegaRAID SAS 드라이버 설치
+  block:
+    - name: MegaRAID 드라이버 다운로드
+      get_url:
+        url: "{{ driver_repo_url }}/storage/lsi/megaraid_sas-{{ storage_drivers[0].version }}.tar.gz"
+        dest: "{{ driver_local_path }}/megaraid_sas.tar.gz"
+
+    - name: MegaRAID 드라이버 압축 해제
+      unarchive:
+        src: "{{ driver_local_path }}/megaraid_sas.tar.gz"
+        dest: "{{ driver_local_path }}"
+        remote_src: yes
+
+    - name: MegaRAID 드라이버 컴파일
+      make:
+        chdir: "{{ driver_local_path }}/megaraid_sas-{{ storage_drivers[0].version }}"
+
+    - name: MegaRAID 드라이버 설치
+      make:
+        chdir: "{{ driver_local_path }}/megaraid_sas-{{ storage_drivers[0].version }}"
+        target: install
+
+    - name: MegaRAID 관리 도구 설치
+      get_url:
+        url: "{{ driver_repo_url }}/storage/lsi/storcli.deb"
+        dest: "{{ driver_local_path }}/storcli.deb"
+
+    - name: StorCLI 설치 (Ubuntu/Debian)
+      apt:
+        deb: "{{ driver_local_path }}/storcli.deb"
+      when: ansible_os_family == "Debian"
+
+  when: "'LSI' in storage_controllers.stdout or 'MegaRAID' in storage_controllers.stdout"
+
+# MPT3SAS 드라이버 설치
+- name: MPT3SAS 드라이버 설치
+  block:
+    - name: MPT3SAS 드라이버 다운로드
+      get_url:
+        url: "{{ driver_repo_url }}/storage/lsi/mpt3sas-{{ storage_drivers[1].version }}.tar.gz"
+        dest: "{{ driver_local_path }}/mpt3sas.tar.gz"
+
+    - name: MPT3SAS 드라이버 압축 해제
+      unarchive:
+        src: "{{ driver_local_path }}/mpt3sas.tar.gz"
+        dest: "{{ driver_local_path }}"
+        remote_src: yes
+
+    - name: MPT3SAS 드라이버 컴파일 및 설치
+      shell: |
+        cd {{ driver_local_path }}/mpt3sas-{{ storage_drivers[1].version }}
+        make && make install
+
+  when: "'LSI' in storage_controllers.stdout"
+
+# NVMe 드라이버 업데이트 (최신 커널용)
+- name: NVMe 드라이버 확인 및 업데이트
+  block:
+    - name: NVMe 디바이스 확인
+      shell: lspci | grep -i nvme
+      register: nvme_devices
+      ignore_errors: yes
+
+    - name: NVMe 드라이버 모듈 로드
+      modprobe:
+        name: nvme
+        state: present
+
+    - name: NVMe 디바이스 상태 확인
+      command: nvme list
+      register: nvme_list
+      ignore_errors: yes
+
+  when: nvme_devices is defined and nvme_devices.stdout != ""
+
+# SATA AHCI 드라이버 확인
+- name: AHCI 드라이버 확인
+  modprobe:
+    name: ahci
+    state: present
+  when: "'AHCI' in storage_controllers.stdout"
+
+- name: 스토리지 드라이버 모듈 로드 확인
+  shell: lsmod | grep -E "(megaraid|mpt3sas|ahci|nvme)"
+  register: loaded_storage_drivers
+  changed_when: false
+
+- name: 디스크 재검색
+  shell: |
+    echo "- - -" > /sys/class/scsi_host/host*/scan
+    partprobe
+  ignore_errors: yes
+
+- name: 스토리지 디바이스 목록 업데이트
+  command: lsblk
+  register: updated_block_devices
+  changed_when: false
+
+- name: 스토리지 드라이버 설치 결과
+  debug:
+    msg: |
+      로드된 스토리지 드라이버: {{ loaded_storage_drivers.stdout_lines }}
+      감지된 블록 디바이스: {{ updated_block_devices.stdout_lines }}
+
+- name: 스토리지 드라이버 설치 완료
+  debug:
+    msg: "스토리지 드라이버 설치가 완료되었습니다"

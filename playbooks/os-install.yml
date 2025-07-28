@@ -1,0 +1,9 @@
+---
+# OS 설치 전용 플레이북
+- name: OS 설치
+  hosts: baremetal_servers
+  become: yes
+  gather_facts: yes
+  
+  roles:
+    - os_install

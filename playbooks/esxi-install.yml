@@ -1,0 +1,166 @@
+---
+# ESXi 자동 설치 메인 플레이북
+# vSphere VM을 베어메탈 서버로 시뮬레이션하여 ESXi 설치
+
+- name: ESXi 설치 준비 및 실행
+  hosts: vsphere_vms
+  gather_facts: yes
+  vars:
+    # 기본 변수 설정
+    base_iso_path: "/srv/isos/base/VMware-ESXi-8.0.0-base.iso"
+    custom_iso_output_path: "/srv/isos/custom"
+    repo_server: "{{ groups['repo_servers'][0] | default('localhost') }}"
+    
+  pre_tasks:
+    - name: 필수 변수 검증
+      ansible.builtin.assert:
+        that:
+          - vcenter_hostname is defined
+          - vcenter_username is defined
+          - vcenter_password is defined
+          - vm_name is defined
+          - datacenter is defined
+        fail_msg: "필수 vSphere 연결 정보가 누락되었습니다"
+
+    - name: ESXi 설치 시작 로그
+      ansible.builtin.debug:
+        msg:
+          - "=== ESXi 자동 설치 시작 ==="
+          - "대상 VM: {{ vm_name }}"
+          - "인벤토리 호스트: {{ inventory_hostname }}"
+          - "vCenter: {{ vcenter_hostname }}"
+          - "데이터센터: {{ datacenter }}"
+
+  tasks:
+    # Phase 1: 커스텀 ISO 생성
+    - name: "Phase 1: 커스텀 ISO 생성"
+      block:
+        - name: 커스텀 ISO 생성 시작
+          ansible.builtin.debug:
+            msg: "{{ inventory_hostname }}용 커스텀 ESXi ISO 생성 중..."
+
+        - name: ISO 커스터마이징 역할 실행
+          ansible.builtin.include_role:
+            name: iso_customization
+          vars:
+            custom_iso_name: "VMware-ESXi-{{ esxi_version | default('8.0.0') }}-custom-{{ inventory_hostname }}.iso"
+
+        - name: ISO 생성 결과 저장
+          ansible.builtin.set_fact:
+            custom_iso_path: "{{ custom_iso_output_path }}/{{ custom_iso_name }}"
+            
+      delegate_to: "{{ repo_server }}"
+      run_once_per_host: true
+
+    # Phase 2: repo 서버에 ISO 업로드 (이미 로컬에 생성되었으므로 확인만)
+    - name: "Phase 2: Repo 서버 ISO 확인"
+      block:
+        - name: 생성된 ISO 파일 확인
+          ansible.builtin.stat:
+            path: "{{ custom_iso_path }}"
+          register: custom_iso_stat
+          delegate_to: "{{ repo_server }}"
+
+        - name: ISO 파일 존재 확인
+          ansible.builtin.fail:
+            msg: "커스텀 ISO 파일이 생성되지 않았습니다: {{ custom_iso_path }}"
+          when: not custom_iso_stat.stat.exists
+
+        - name: 데이터스토어 ISO 경로 설정
+          ansible.builtin.set_fact:
+            datastore_iso_path: "[{{ esxi_iso_datastore | default('datastore1') }}] iso/{{ custom_iso_name }}"
+
+    # Phase 3: vSphere에 ISO 업로드
+    - name: "Phase 3: vSphere 데이터스토어에 ISO 업로드"
+      block:
+        - name: 데이터스토어에 ISO 업로드
+          community.vmware.vsphere_copy:
+            hostname: "{{ vcenter_hostname }}"
+            username: "{{ vcenter_username }}"
+            password: "{{ vcenter_password }}"
+            port: "{{ vcenter_port | default(443) }}"
+            validate_certs: "{{ vcenter_validate_certs | default(false) }}"
+            datacenter: "{{ datacenter }}"
+            datastore: "{{ esxi_iso_datastore | default('datastore1') }}"
+            path: "iso/{{ custom_iso_name }}"
+            src: "{{ custom_iso_path }}"
+          delegate_to: localhost
+          register: iso_upload_result
+
+        - name: ISO 업로드 결과 확인
+          ansible.builtin.debug:
+            msg: "ISO 업로드 완료: {{ datastore_iso_path }}"
+
+    # Phase 4: VM에 ISO 마운트 및 부팅
+    - name: "Phase 4: VM 설정 및 ESXi 설치 시작"
+      block:
+        - name: VM에 ISO 마운트
+          ansible.builtin.include_role:
+            name: vsphere_vm_management
+          vars:
+            vm_action: mount_iso
+            iso_path: "{{ datastore_iso_path }}"
+
+        - name: ESXi 설치 시작 메시지
+          ansible.builtin.debug:
+            msg:
+              - "{{ vm_name }}에서 ESXi 설치가 시작됩니다"
+              - "설치는 자동으로 진행되며 완료까지 약 10-15분 소요됩니다"
+              - "설치 진행 상황은 vSphere Client에서 콘솔을 통해 확인할 수 있습니다"
+
+    # Phase 5: 설치 완료 대기 및 확인
+    - name: "Phase 5: 설치 완료 대기"
+      block:
+        - name: 설치 완료 대기
+          ansible.builtin.pause:
+            prompt: "ESXi 설치가 진행 중입니다. 설치 완료 후 계속하려면 Enter를 누르세요"
+          when: not automated_install | default(false)
+
+        - name: 자동 설치 모드에서 대기
+          ansible.builtin.pause:
+            minutes: 15
+            prompt: "ESXi 자동 설치 대기 중 (15분)..."
+          when: automated_install | default(false)
+
+        - name: 설치 완료 후 VM 상태 확인
+          community.vmware.vmware_guest_info:
+            hostname: "{{ vcenter_hostname }}"
+            username: "{{ vcenter_username }}"
+            password: "{{ vcenter_password }}"
+            port: "{{ vcenter_port | default(443) }}"
+            validate_certs: "{{ vcenter_validate_certs | default(false) }}"
+            datacenter: "{{ datacenter }}"
+            name: "{{ vm_name }}"
+          register: final_vm_info
+          delegate_to: localhost
+
+        - name: 설치 완료 상태 출력
+          ansible.builtin.debug:
+            msg:
+              - "=== ESXi 설치 완료 ==="
+              - "VM: {{ vm_name }}"
+              - "전원 상태: {{ final_vm_info.instance.hw_power_status }}"
+              - "게스트 OS: {{ final_vm_info.instance.hw_guest_full_name | default('ESXi') }}"
+
+  post_tasks:
+    - name: ISO 언마운트 (선택사항)
+      ansible.builtin.include_role:
+        name: vsphere_vm_management
+      vars:
+        vm_action: power_off
+      when: unmount_iso_after_install | default(false)
+
+    - name: 설치 로그 기록
+      ansible.builtin.lineinfile:
+        path: "/var/log/esxi_installation.log"
+        line: "{{ ansible_date_time.iso8601 }} - ESXi 설치 완료: {{ inventory_hostname }} ({{ vm_name }})"
+        create: yes
+      delegate_to: "{{ repo_server }}"
+
+  handlers:
+    - name: cleanup iso files
+      ansible.builtin.file:
+        path: "{{ custom_iso_path }}"
+        state: absent
+      delegate_to: "{{ repo_server }}"
+      when: cleanup_iso_after_install | default(false)

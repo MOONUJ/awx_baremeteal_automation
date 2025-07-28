@@ -1,0 +1,98 @@
+---
+- name: 벤더별 드라이버 설치 시작
+  debug:
+    msg: "{{ detected_vendor | default(hardware_vendor) }} 벤더별 드라이버를 설치합니다"
+
+# Dell 벤더별 드라이버
+- name: Dell 벤더 드라이버 설치
+  block:
+    - name: Dell OpenManage Server Administrator 설치
+      package:
+        name: srvadmin-all
+        state: present
+
+    - name: Dell OMSA 서비스 시작
+      systemd:
+        name: dsm_sa_datamgrd
+        state: started
+        enabled: yes
+
+    - name: Dell PERC RAID 드라이버 확인
+      command: lspci | grep -i perc
+      register: dell_perc
+      ignore_errors: yes
+      changed_when: false
+
+  when: detected_vendor == "dell" or hardware_vendor == "dell"
+
+# HP 벤더별 드라이버
+- name: HP 벤더 드라이버 설치
+  block:
+    - name: HP Management Component Pack 설치
+      package:
+        name: 
+          - hp-health
+          - hponcfg
+          - hp-smh-templates
+        state: present
+
+    - name: HP Health 서비스 시작
+      systemd:
+        name: hp-health
+        state: started
+        enabled: yes
+
+    - name: HP Smart Array 드라이버 확인
+      command: lspci | grep -i "smart array"
+      register: hp_smartarray
+      ignore_errors: yes
+      changed_when: false
+
+  when: detected_vendor == "hp" or hardware_vendor == "hp"
+
+# Supermicro 벤더별 드라이버
+- name: Supermicro 벤더 드라이버 설치
+  block:
+    - name: Supermicro 관리 도구 다운로드
+      get_url:
+        url: "{{ driver_repo_url }}/supermicro/SMCIPMItool.tar.gz"
+        dest: "{{ driver_local_path }}/SMCIPMItool.tar.gz"
+
+    - name: Supermicro IPMI 도구 설치
+      unarchive:
+        src: "{{ driver_local_path }}/SMCIPMItool.tar.gz"
+        dest: /usr/local/bin/
+        remote_src: yes
+
+  when: detected_vendor == "supermicro" or hardware_vendor == "supermicro"
+
+# 공통 시스템 관리 도구
+- name: 시스템 모니터링 도구 설치
+  package:
+    name:
+      - lm-sensors
+      - smartmontools
+      - hdparm
+      - pciutils
+      - usbutils
+    state: present
+
+- name: 센서 감지 및 설정
+  shell: yes | sensors-detect
+  ignore_errors: yes
+
+- name: lm-sensors 서비스 시작
+  systemd:
+    name: lm-sensors
+    state: started
+    enabled: yes
+
+- name: SMART 모니터링 활성화
+  systemd:
+    name: smartmontools
+    state: started
+    enabled: yes
+
+- name: 벤더별 드라이버 설치 완료
+  debug:
+    msg: "{{ detected_vendor | default(hardware_vendor) }} 벤더별 드라이버 설치가 완료되었습니다"

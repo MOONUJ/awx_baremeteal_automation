@@ -1,0 +1,50 @@
+---
+# 작업 디렉토리 정리 태스크
+
+- name: 마운트 포인트 최종 정리
+  ansible.builtin.include_tasks: cleanup_mounts.yml
+
+- name: 추출 디렉토리 삭제
+  ansible.builtin.file:
+    path: "{{ extract_dir }}"
+    state: absent
+  when: cleanup_work_dir
+
+- name: 마운트 디렉토리 삭제
+  ansible.builtin.file:
+    path: "{{ mount_dir }}"
+    state: absent
+  when: cleanup_work_dir
+
+- name: 작업 디렉토리 삭제
+  ansible.builtin.file:
+    path: "{{ work_dir }}"
+    state: absent
+  when: cleanup_work_dir
+
+- name: 임시 파일 정리
+  ansible.builtin.shell: |
+    find /tmp -name "*iso*" -type f -mtime +1 -delete 2>/dev/null || true
+  become: yes
+  when: cleanup_work_dir
+
+- name: 루프 디바이스 최종 정리
+  ansible.builtin.shell: |
+    losetup -a | grep -E "(deleted|{{ base_iso_path }})" | cut -d: -f1 | xargs -r losetup -d 2>/dev/null || true
+  become: yes
+
+- name: 정리 완료 로그
+  ansible.builtin.lineinfile:
+    path: "{{ log_file }}"
+    line: "{{ ansible_date_time.iso8601 }} - 작업 디렉토리 정리 완료: {{ work_dir }}"
+    create: yes
+  when: enable_iso_logging
+  become: yes
+
+- name: 정리 완료 메시지
+  ansible.builtin.debug:
+    msg:
+      - "작업 디렉토리 정리 완료"
+      - "정리된 경로: {{ work_dir }}"
+      - "마운트 포인트 정리: 완료"
+      - "루프 디바이스 정리: 완료"

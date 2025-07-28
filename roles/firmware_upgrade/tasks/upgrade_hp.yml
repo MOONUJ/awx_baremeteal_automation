@@ -1,0 +1,108 @@
+---
+- name: HP 펌웨어 업그레이드 시작
+  debug:
+    msg: "HP 서버 펌웨어 업그레이드를 시작합니다"
+
+- name: HP Service Pack for ProLiant 확인
+  command: which hpsum
+  register: hpsum_installed
+  ignore_errors: yes
+  changed_when: false
+
+- name: HP SUM (Smart Update Manager) 설치
+  block:
+    - name: HP SUM 다운로드
+      get_url:
+        url: "{{ firmware_repo_url }}/hp/sum/hpsum.bin"
+        dest: "{{ firmware_local_path }}/hpsum.bin"
+        mode: '0755'
+
+    - name: HP SUM 설치
+      command: "{{ firmware_local_path }}/hpsum.bin --silent"
+      register: hpsum_install
+      
+    - name: HP SUM 설치 확인
+      command: /opt/hp/sum/bin/hpsum --version
+      register: hpsum_version
+      changed_when: false
+
+  when: hpsum_installed.rc != 0
+
+- name: HP Service Pack 다운로드
+  get_url:
+    url: "{{ firmware_repo_url }}/hp/spp/SPP.iso"
+    dest: "{{ firmware_local_path }}/SPP.iso"
+
+- name: ISO 마운트 포인트 생성
+  file:
+    path: "{{ firmware_local_path }}/spp_mount"
+    state: directory
+
+- name: Service Pack ISO 마운트
+  mount:
+    path: "{{ firmware_local_path }}/spp_mount"
+    src: "{{ firmware_local_path }}/SPP.iso"
+    fstype: iso9660
+    opts: loop,ro
+    state: mounted
+
+- name: 현재 설치된 구성요소 확인
+  command: /opt/hp/sum/bin/hpsum --inventory
+  register: hp_inventory
+  changed_when: false
+
+- name: 업데이트 가능한 구성요소 확인
+  command: "/opt/hp/sum/bin/hpsum --input {{ firmware_local_path }}/spp_mount --inventory"
+  register: hp_updates
+  changed_when: false
+
+- name: BIOS 펌웨어 업그레이드
+  command: "/opt/hp/sum/bin/hpsum --input {{ firmware_local_path }}/spp_mount --use_location {{ firmware_local_path }}/spp_mount --silent --force"
+  register: hp_bios_upgrade
+  when: "'BIOS' in hp_updates.stdout"
+
+- name: iLO 펌웨어 업그레이드
+  block:
+    - name: iLO 업데이트 실행
+      command: "/opt/hp/sum/bin/hpsum --input {{ firmware_local_path }}/spp_mount --component ilo --silent"
+      register: ilo_upgrade
+
+    - name: iLO 재시작 대기
+      wait_for:
+        host: "{{ ansible_default_ipv4.address }}"
+        port: 443
+        timeout: 300
+        delay: 60
+
+- name: Smart Array 컨트롤러 업그레이드
+  command: "/opt/hp/sum/bin/hpsum --input {{ firmware_local_path }}/spp_mount --component smartarray --silent"
+  register: smartarray_upgrade
+  when: "'Smart Array' in hp_updates.stdout"
+
+- name: 네트워크 컨트롤러 업그레이드
+  command: "/opt/hp/sum/bin/hpsum --input {{ firmware_local_path }}/spp_mount --component nic --silent"
+  register: nic_upgrade
+  when: "'Network' in hp_updates.stdout"
+
+- name: ISO 언마운트
+  mount:
+    path: "{{ firmware_local_path }}/spp_mount"
+    state: unmounted
+
+- name: 업그레이드 로그 확인
+  command: cat /var/log/hp/sum/sum.log
+  register: hp_upgrade_log
+  changed_when: false
+
+- name: 업그레이드 결과 출력
+  debug:
+    msg: "HP 펌웨어 업그레이드 로그: {{ hp_upgrade_log.stdout_lines[-20:] }}"
+
+- name: 시스템 재부팅 (필요시)
+  reboot:
+    reboot_timeout: "{{ upgrade_timeout }}"
+  when: reboot_after_upgrade and (hp_bios_upgrade.changed or ilo_upgrade.changed)
+
+- name: HP 펌웨어 업그레이드 완료
+  debug:
+    msg: "HP 서버 펌웨어 업그레이드가 완료되었습니다"

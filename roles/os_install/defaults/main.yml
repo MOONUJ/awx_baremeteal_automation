@@ -1,0 +1,136 @@
+---
+# OS 설치 기본 변수
+os_type: "ubuntu"  # ubuntu, centos, rhel
+os_version: "22.04"
+os_arch: "x86_64"
+
+# PXE 설정
+pxe_server: "192.168.1.100"
+tftp_server: "{{ pxe_server }}"
+nfs_server: "{{ pxe_server }}"
+
+# OS 이미지 설정
+os_image_path: "/srv/images/{{ os_type }}-{{ os_version }}-{{ os_arch }}.iso"
+kickstart_template: "kickstart-{{ os_type }}.cfg.j2"
+
+# 네트워크 설정
+network_interface: "eth0"
+use_dhcp: false
+static_ip: ""  # 정적 IP 사용시 설정
+netmask: "255.255.255.0"
+gateway: "192.168.1.1"
+dns_servers:
+  - "8.8.8.8"
+  - "8.8.4.4"
+
+# 디스크 설정
+target_disk: "/dev/sda"
+partition_scheme: "auto"  # auto, custom
+filesystem_type: "ext4"
+
+# 사용자 설정
+root_password: "{{ vault_root_password | default('changeme') }}"
+create_admin_user: true
+admin_username: "admin"
+admin_password: "{{ vault_admin_password | default('admin123') }}"
+
+# 패키지 설정
+install_base_packages: true
+base_packages:
+  - vim
+  - curl
+  - wget
+  - htop
+  - net-tools
+  - openssh-server
+
+# 보안 설정
+disable_root_ssh: true
+enable_firewall: true
+ssh_port: 22
+
+# 재부팅 설정
+reboot_after_install: true
+reboot_timeout: 600
+
+# ESXi 설치 설정
+esxi_version: "8.0.0"
+esxi_build: "20513097"
+esxi_iso_path: "/srv/isos/base/VMware-ESXi-8.0.0-base.iso"
+
+# ESXi 네트워크 설정
+esxi_use_dhcp: false
+esxi_network_device: "vmnic0"
+esxi_static_ip: ""  # 정적 IP 사용시 설정
+esxi_netmask: "255.255.255.0"
+esxi_gateway: "192.168.1.1"
+esxi_dns_servers:
+  - "8.8.8.8"
+  - "8.8.4.4"
+
+# ESXi 시스템 설정
+esxi_root_password: "{{ vault_esxi_root_password | default('VMware123!') }}"
+esxi_timezone: "Asia/Seoul"
+esxi_ntp_servers:
+  - "pool.ntp.org"
+  - "time.nist.gov"
+esxi_datastore_name: "datastore1"
+esxi_target_disk: ""  # 자동 감지시 비워둠
+
+# ESXi 서비스 설정
+esxi_enable_ssh: true
+esxi_enable_shell: false
+esxi_enable_snmp: false
+esxi_snmp_community: "public"
+esxi_snmp_port: 161
+
+# ESXi 로깅 설정
+esxi_syslog_server: ""  # 원격 syslog 서버
+esxi_syslog_port: 514
+esxi_scratch_location: ""  # 스크래치 파티션 위치
+esxi_scratch_size: 512  # MB
+
+# ESXi vSwitch 설정
+esxi_vswitch_config: []
+#  - name: "vSwitch0"
+#    uplinks: ["vmnic0"]
+#    portgroups:
+#      - name: "Management Network"
+#        vlan: 0
+#      - name: "VM Network"
+#        vlan: 100
+
+# ESXi 고급 옵션
+esxi_advanced_options: []
+#  - key: "UserVars.SuppressShellWarning"
+#    value: "1"
+#    type: "int"
+
+# ESXi 로컬 사용자
+esxi_local_users: []
+#  - username: "admin"
+#    password: "Admin123!"
+#    description: "Local Administrator"
+#    roles: ["Admin"]
+
+# ESXi 방화벽 규칙
+esxi_firewall_rules: []
+#  - ruleset: "sshServer"
+#    enabled: true
+
+# ESXi 커스텀 명령어
+esxi_custom_commands: []
+
+# vSphere 연결 설정
+vcenter_hostname: ""
+vcenter_username: ""
+vcenter_password: "{{ vault_vcenter_password | default('') }}"
+vcenter_port: 443
+vcenter_validate_certs: false
+
+# ISO 커스터마이징 설정
+custom_iso_output_path: "/srv/isos/custom"
+esxi_iso_datastore: "datastore1"
+automated_install: false
+unmount_iso_after_install: false
+cleanup_iso_after_install: false

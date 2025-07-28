@@ -1,0 +1,33 @@
+---
+# Dell 서버 특화 변수
+
+# Dell OpenManage 설정
+install_openmanage: true
+openmanage_version: "11.0.0"
+
+# Dell 드라이버 저장소
+dell_driver_repo: "https://downloads.dell.com/FOLDER08052594M/1/"
+
+# iDRAC 설정
+idrac_enable_virtual_media: true
+idrac_enable_console_redirection: true
+idrac_session_timeout: 3600
+
+# Dell 하드웨어 모니터링
+enable_hardware_monitoring: true
+snmp_community: "public"
+
+# Dell 펌웨어 업그레이드 설정
+dell_auto_firmware_update: false
+dell_firmware_schedule: "monthly"
+
+# Dell 특화 패키지
+dell_packages:
+  - srvadmin-all
+  - syscfg
+  - dsu
+  - dcism
+
+# RAID 설정 (Dell PERC)
+configure_raid: false
+raid_level: "1"

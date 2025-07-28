@@ -1,0 +1,98 @@
+---
+# VM 재구성 태스크
+
+- name: VM 하드웨어 사양 업데이트
+  community.vmware.vmware_guest:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    port: "{{ vcenter_port }}"
+    validate_certs: "{{ vcenter_validate_certs }}"
+    datacenter: "{{ datacenter }}"
+    name: "{{ vm_name }}"
+    state: present
+    hardware:
+      memory_mb: "{{ vm_memory_mb }}"
+      num_cpus: "{{ vm_num_cpus }}"
+      num_cpu_cores_per_socket: "{{ vm_num_cpu_cores_per_socket }}"
+      scsi: "{{ vm_scsi_type }}"
+      version: "{{ vm_hardware_version }}"
+    guest_id: "{{ vm_guest_os }}"
+  register: vm_reconfigure_result
+  delegate_to: localhost
+  when: reconfigure_hardware | default(false)
+
+- name: VM 네트워크 설정 업데이트
+  community.vmware.vmware_guest:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    port: "{{ vcenter_port }}"
+    validate_certs: "{{ vcenter_validate_certs }}"
+    datacenter: "{{ datacenter }}"
+    name: "{{ vm_name }}"
+    state: present
+    networks:
+      - name: "{{ vm_network_name }}"
+        device_type: vmxnet3
+        start_connected: true
+        allow_guest_control: true
+  register: vm_network_result
+  delegate_to: localhost
+  when: reconfigure_network | default(false)
+
+- name: VM 디스크 설정 업데이트
+  community.vmware.vmware_guest:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    port: "{{ vcenter_port }}"
+    validate_certs: "{{ vcenter_validate_certs }}"
+    datacenter: "{{ datacenter }}"
+    name: "{{ vm_name }}"
+    state: present
+    disk:
+      - size_gb: "{{ vm_disk_size_gb }}"
+        type: thin
+        datastore: "{{ vm_datastore | default(omit) }}"
+        scsi_controller: 0
+        unit_number: 0
+        state: present
+  register: vm_disk_result
+  delegate_to: localhost
+  when: reconfigure_disk | default(false)
+
+- name: VM 고급 설정 적용
+  community.vmware.vmware_guest:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    port: "{{ vcenter_port }}"
+    validate_certs: "{{ vcenter_validate_certs }}"
+    datacenter: "{{ datacenter }}"
+    name: "{{ vm_name }}"
+    state: present
+    customvalues: "{{ vm_custom_values | default([]) }}"
+  register: vm_advanced_result
+  delegate_to: localhost
+  when: 
+    - vm_custom_values is defined
+    - vm_custom_values | length > 0
+
+- name: VM 재구성 결과 출력
+  ansible.builtin.debug:
+    msg:
+      - "VM 재구성 완료: {{ vm_name }}"
+      - "메모리: {{ vm_memory_mb }}MB"
+      - "CPU: {{ vm_num_cpus }}개"
+      - "디스크: {{ vm_disk_size_gb }}GB"
+      - "네트워크: {{ vm_network_name }}"
+
+- name: VM 재구성 실패시 알림
+  ansible.builtin.fail:
+    msg: "VM 재구성에 실패했습니다"
+  when: >
+    (vm_reconfigure_result is defined and vm_reconfigure_result is failed) or
+    (vm_network_result is defined and vm_network_result is failed) or
+    (vm_disk_result is defined and vm_disk_result is failed) or
+    (vm_advanced_result is defined and vm_advanced_result is failed)
